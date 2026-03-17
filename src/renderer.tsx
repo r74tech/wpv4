@@ -64,8 +64,7 @@ export const renderer = jsxRenderer(({ children }) => {
 										</div>
 									</div>
 									<div id="main-content">
-										<div id="page-title" />
-										<div id="page-content">{children}</div>
+										{children}
 										<div id="page-info-break" />
 										<div id="page-options-container">
 											<div id="page-info" />

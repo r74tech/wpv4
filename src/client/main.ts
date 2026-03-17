@@ -452,8 +452,18 @@ function setupEventHandlers() {
 async function init() {
 	setupEventHandlers();
 	await Promise.all([loadAuthStatus(), loadSidebar(), loadTopbar()]);
-	const path = getPagePathFromUrl();
-	if (path) await loadPage(path);
+
+	// SSRでコンテンツが既にレンダリング済みなら、WDPRランタイム初期化とページオプション更新のみ
+	const pageContent = $("#page-content");
+	if (pageContent && pageContent.innerHTML.trim() && !pageContent.textContent?.includes("Loading")) {
+		initRuntime();
+		const path = getPagePathFromUrl();
+		if (path) updatePageOptions(path, false);
+	} else {
+		// SSRコンテンツがない場合（フォールバック）
+		const path = getPagePathFromUrl();
+		if (path) await loadPage(path);
+	}
 }
 
 document.addEventListener("DOMContentLoaded", init);
