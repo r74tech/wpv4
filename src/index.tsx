@@ -1,77 +1,74 @@
 import { Hono } from "hono";
+import { raw } from "hono/utils/html";
 import { cors } from "hono/cors";
 import { drizzle } from "drizzle-orm/d1";
 import { eq, and } from "drizzle-orm";
 import { pages, pageTags } from "./db/schema";
 import { renderWikitext, parsePagePath } from "./services/pipeline";
+import { renderNav } from "./services/nav";
 import { api } from "./routes/api";
 import { auth } from "./routes/auth";
 import { user } from "./routes/user";
 import { passkeyApi } from "./routes/passkey-api";
-import { renderer } from "./renderer";
+import { WikidotShell } from "./components/WikidotShell";
 import { resolveSession } from "./middleware/session";
 import type { AppEnv } from "./types/env";
 
 const app = new Hono<AppEnv>();
 
-// セッション解決を全ルートに適用
 app.use("*", resolveSession);
-
-// CORS (API用)
 app.use("/api/*", cors());
 
-// ルート登録
 app.route("/api", api);
 app.route("/api/passkeys", passkeyApi);
 app.route("/auth", auth);
 app.route("/user", user);
 
-// SSR: ページコンテンツをサーバーサイドでレンダリングして返す
-app.use("*", renderer);
 app.get("*", async (c) => {
-	const rawPath = c.req.path.slice(1); // 先頭の / を除去
+	const rawPath = c.req.path.slice(1);
 	const pagePath = rawPath || "main:start";
 	const [category, unixName] = parsePagePath(pagePath);
 
 	const db = drizzle(c.env.DB);
-	const page = await db
-		.select()
-		.from(pages)
-		.where(and(eq(pages.category, category), eq(pages.unixName, unixName)))
-		.limit(1);
 
-	if (!page[0]) {
-		return c.render(
-			<>
+	// ページ・sidebar・topbar を並列取得
+	const [pageRow, sidebar, topbar] = await Promise.all([
+		db.select().from(pages).where(and(eq(pages.category, category), eq(pages.unixName, unixName))).limit(1),
+		renderNav(c.env, "side"),
+		renderNav(c.env, "top"),
+	]);
+
+	const page = pageRow[0];
+
+	if (!page) {
+		return c.html(
+			<WikidotShell sidebar={sidebar} topbar={topbar}>
 				<div id="page-title" />
 				<div id="page-content">
 					<p>Page not found.</p>
 				</div>
-			</>,
+			</WikidotShell>,
 		);
 	}
 
 	const tags = await db
 		.select({ tag: pageTags.tag })
 		.from(pageTags)
-		.where(eq(pageTags.pageId, page[0].id));
+		.where(eq(pageTags.pageId, page.id));
 
-	const result = await renderWikitext(page[0].source, c.env, {
+	const result = await renderWikitext(page.source, c.env, {
 		pageName: unixName,
 		category,
 		tags: tags.map((t) => t.tag),
 	});
 
-	return c.render(
-		<>
+	return c.html(
+		<WikidotShell sidebar={sidebar} topbar={topbar} pageStyles={result.styles}>
 			<div id="page-title">
-				<span>{page[0].title}</span>
+				<span>{page.title}</span>
 			</div>
-			<div id="page-content" dangerouslySetInnerHTML={{ __html: result.html }} />
-			{result.styles.length > 0 && (
-				<style dangerouslySetInnerHTML={{ __html: result.styles.join("\n") }} />
-			)}
-		</>,
+			<div id="page-content">{raw(result.html)}</div>
+		</WikidotShell>,
 	);
 });
 

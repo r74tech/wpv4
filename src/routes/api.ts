@@ -5,6 +5,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { eq, and } from "drizzle-orm";
 import { pages, revisions, pageTags } from "@/db/schema";
 import { renderWikitext, parsePagePath } from "@/services/pipeline";
+import { renderNav } from "@/services/nav";
 import { requireAuth } from "@/middleware/session";
 import { verifyCsrf } from "@/middleware/csrf";
 import type { AppEnv } from "@/types/env";
@@ -269,42 +270,14 @@ api.get("/me", async (c) => {
 
 // サイドバー
 api.get("/sidebar", async (c) => {
-	const db = drizzle(c.env.DB);
-	const page = await db
-		.select()
-		.from(pages)
-		.where(and(eq(pages.category, "nav"), eq(pages.unixName, "side")))
-		.limit(1);
-
-	if (!page[0]) {
-		return c.json({ html: "", styles: [] });
-	}
-
-	const result = await renderWikitext(page[0].source, c.env, {
-		pageName: "side",
-		category: "nav",
-	});
-	return c.json(result);
+	const result = await renderNav(c.env, "side");
+	return c.json(result ?? { html: "", styles: [] });
 });
 
 // トップバー
 api.get("/topbar", async (c) => {
-	const db = drizzle(c.env.DB);
-	const page = await db
-		.select()
-		.from(pages)
-		.where(and(eq(pages.category, "nav"), eq(pages.unixName, "top")))
-		.limit(1);
-
-	if (!page[0]) {
-		return c.json({ html: "", styles: [] });
-	}
-
-	const result = await renderWikitext(page[0].source, c.env, {
-		pageName: "top",
-		category: "nav",
-	});
-	return c.json(result);
+	const result = await renderNav(c.env, "top");
+	return c.json(result ?? { html: "", styles: [] });
 });
 
 export { api };

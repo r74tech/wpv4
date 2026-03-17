@@ -132,6 +132,8 @@ function getPagePathFromUrl(): string | null {
 async function loadSidebar() {
 	const sidebar = $("#side-bar");
 	if (!sidebar) return;
+	// SSRで既にコンテンツがあればスキップ
+	if (sidebar.children.length > 1) return;
 	try {
 		const res = await fetch("/api/sidebar");
 		const data = await res.json() as { html: string };
@@ -145,9 +147,12 @@ async function loadSidebar() {
 
 async function loadTopbar() {
 	const topbar = $("#top-bar");
+	if (!topbar) return;
+	// SSRで既にコンテンツがあればスキップ
+	if (topbar.innerHTML.trim()) return;
 	try {
 		const res = await fetch("/api/topbar");
-		const data = await res.json();
+		const data = await res.json() as { html: string };
 		setHtml(topbar, data.html || "");
 	} catch {
 		// トップバーなしでも動作する
