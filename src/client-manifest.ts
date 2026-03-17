@@ -6,14 +6,26 @@ type ManifestEntry = {
 
 type Manifest = Record<string, ManifestEntry>;
 
-// @ts-expect-error manifest.json only exists after client build
-import manifest from "../dist/.vite/manifest.json" with { type: "json" };
+let manifest: Manifest | null = null;
 
-export function getClientScriptPath(): string {
-	const m = manifest as Manifest;
-	const entry = m["src/client/main.ts"];
-	if (!entry) {
-		throw new Error("Client entry not found in manifest");
+function loadManifest(): Manifest {
+	if (manifest) return manifest;
+	try {
+		// @ts-expect-error manifest.json only exists after client build
+		manifest = require("../dist/.vite/manifest.json") as Manifest;
+	} catch {
+		manifest = {};
 	}
-	return `/${entry.file}`;
+	return manifest!;
+}
+
+export function getClientScriptPath(entry: string): string {
+	if (!import.meta.env.PROD) {
+		return `/src/client/${entry}.ts`;
+	}
+	const m = loadManifest();
+	const key = `src/client/${entry}.ts`;
+	const e = m[key];
+	if (!e) return `/static/${entry}.js`;
+	return `/${e.file}`;
 }

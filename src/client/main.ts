@@ -115,8 +115,9 @@ function updatePageOptions(path: string, isNew: boolean) {
 // --- ナビゲーション ---
 
 function navigateTo(path: string) {
-	history.pushState(null, "", `/${path}`);
-	loadPage(path);
+	const resolved = path || "main:start";
+	history.pushState(null, "", `/${resolved}`);
+	loadPage(resolved);
 }
 
 function getPagePathFromUrl(): string | null {
@@ -130,10 +131,13 @@ function getPagePathFromUrl(): string | null {
 
 async function loadSidebar() {
 	const sidebar = $("#side-bar");
+	if (!sidebar) return;
 	try {
 		const res = await fetch("/api/sidebar");
-		const data = await res.json();
-		setHtml(sidebar, data.html || "");
+		const data = await res.json() as { html: string };
+		const actions = sidebar.querySelector("#side-bar-actions");
+		const actionsHtml = actions ? actions.outerHTML : "";
+		sidebar.innerHTML = actionsHtml + (data.html || "");
 	} catch {
 		// サイドバーなしでも動作する
 	}
@@ -173,7 +177,8 @@ function updateLoginStatus() {
 			`<span class="printuser">${name}</span>` +
 			` | <a id="account-topbutton" href="javascript:;">▼</a>` +
 			`<div id="account-options"><ul>` +
-			`<li><a href="/auth/settings">Settings</a></li>` +
+			`<li><a href="/user/settings">Settings</a></li>` +
+			`<li><a href="/user/activities">Activities</a></li>` +
 			`<li><a href="javascript:;" id="btn-logout">Sign out</a></li>` +
 			`</ul></div>`,
 		);
@@ -389,8 +394,8 @@ function setupEventHandlers() {
 		const href = anchor.getAttribute("href");
 		if (!href || href.startsWith("http") || href.startsWith("javascript:")) return;
 
-		// auth系はSPA遷移させず通常のナビゲーション
-		if (href.startsWith("/auth/")) return;
+		// auth/user系はSPA遷移させず通常のナビゲーション
+		if (href.startsWith("/auth/") || href.startsWith("/user/")) return;
 
 		// 内部リンク
 		if (href.startsWith("/")) {

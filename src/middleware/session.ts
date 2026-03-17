@@ -3,6 +3,7 @@ import { getCookie } from "hono/cookie";
 import { drizzle } from "drizzle-orm/d1";
 import { eq } from "drizzle-orm";
 import { sessions, users } from "@/db/schema";
+import { sessionCookieName } from "@/lib/cookie";
 import type { AppEnv } from "@/types/env";
 
 async function hashToken(token: string): Promise<string> {
@@ -16,21 +17,22 @@ async function hashToken(token: string): Promise<string> {
 /**
  * セッション解決ミドルウェア。
  * cookieからセッショントークンを読み取り、有効ならc.set("user", ...)に設定する。
- * 認証必須ではない（未認証でもuser=nullで通過）。
  */
 export const resolveSession = createMiddleware<AppEnv>(async (c, next) => {
 	c.set("user", null);
 
-	const token = getCookie(c, "session_token");
+	const token = getCookie(c, sessionCookieName(c.req.url));
 	if (!token) {
 		return next();
 	}
 
 	const tokenHash = await hashToken(token);
 	const db = drizzle(c.env.DB);
+
 	const result = await db
 		.select({
 			userId: sessions.userId,
+			expiresAt: sessions.expiresAt,
 			name: users.name,
 			unixName: users.unixName,
 			wikidotId: users.wikidotId,
@@ -45,7 +47,12 @@ export const resolveSession = createMiddleware<AppEnv>(async (c, next) => {
 		return next();
 	}
 
-	// 有効期限チェックはアプリケーション層で行う（D1はdatetime比較が制限的なため）
+	// 有効期限チェック
+	if (new Date(row.expiresAt) < new Date()) {
+		await db.delete(sessions).where(eq(sessions.tokenHash, tokenHash));
+		return next();
+	}
+
 	c.set("user", {
 		id: row.userId,
 		wikidotId: row.wikidotId,

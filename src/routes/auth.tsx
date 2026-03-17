@@ -1,13 +1,14 @@
 import { Hono } from "hono";
 import { setCookie, getCookie, deleteCookie } from "hono/cookie";
 import { drizzle } from "drizzle-orm/d1";
-import { eq, desc, like, sql, and as drizzleAnd } from "drizzle-orm";
-import { users, sessions, revisions, pages, passkeys } from "@/db/schema";
+import { eq } from "drizzle-orm";
+import { users, sessions } from "@/db/schema";
 import { generatePkce, generateState, buildAuthorizeUrl, exchangeCode } from "@/services/oauth";
-import { hashToken, requireAuth } from "@/middleware/session";
+import { hashToken } from "@/middleware/session";
+import { verifyCsrf } from "@/middleware/csrf";
+import { storeChallenge, consumeChallenge } from "@/services/challenge-store";
+import { sessionCookieName, sessionCookieOptions, oauthCookieName, stateCookieOptions } from "@/lib/cookie";
 import { authRenderer } from "@/auth-renderer";
-import { SettingsPage } from "@/pages/auth/SettingsPage";
-import { ActivitiesPage } from "@/pages/auth/ActivitiesPage";
 import { LoginPage } from "@/pages/auth/LoginPage";
 import type { AppEnv } from "@/types/env";
 
@@ -28,20 +29,14 @@ auth.get("/oauth", async (c) => {
 	const { codeVerifier, codeChallenge } = await generatePkce();
 	const state = generateState();
 
-	setCookie(c, "oauth_code_verifier", codeVerifier, {
-		httpOnly: true,
-		secure: true,
-		sameSite: "Lax",
-		path: "/",
-		maxAge: 600,
-	});
-	setCookie(c, "oauth_state", state, {
-		httpOnly: true,
-		secure: true,
-		sameSite: "Lax",
-		path: "/",
-		maxAge: 600,
-	});
+	// サーバーサイドにOAuthステートを保存
+	const stateKey = await storeChallenge(c.env.DB, {
+		state,
+		codeVerifier,
+		type: "oauth",
+	}, 600);
+
+	setCookie(c, oauthCookieName(c.req.url), stateKey, stateCookieOptions(c.req.url, 600));
 
 	const redirectUri = new URL("/auth/callback", c.req.url).toString();
 	const authorizeUrl = buildAuthorizeUrl(c.env, redirectUri, state, codeChallenge);
@@ -50,18 +45,21 @@ auth.get("/oauth", async (c) => {
 
 auth.get("/callback", async (c) => {
 	const code = c.req.query("code");
-	const state = c.req.query("state");
-	const savedState = getCookie(c, "oauth_state");
-	const codeVerifier = getCookie(c, "oauth_code_verifier");
+	const returnedState = c.req.query("state");
+	const stateKey = getCookie(c, oauthCookieName(c.req.url));
 
-	deleteCookie(c, "oauth_state", { path: "/" });
-	deleteCookie(c, "oauth_code_verifier", { path: "/" });
-
-	if (!code || !state || !savedState || !codeVerifier) {
+	if (!code || !returnedState || !stateKey) {
 		return c.json({ error: "Missing parameters" }, 400);
 	}
 
-	if (state !== savedState) {
+	// サーバーサイドから取得（使い捨て）
+	const savedData = await consumeChallenge(c.env.DB, stateKey);
+	if (!savedData || savedData.type !== "oauth") {
+		return c.json({ error: "Invalid or expired state" }, 403);
+	}
+
+	const { state: savedState, codeVerifier } = savedData;
+	if (returnedState !== savedState) {
 		return c.json({ error: "State mismatch" }, 403);
 	}
 
@@ -105,116 +103,20 @@ auth.get("/callback", async (c) => {
 
 	await db.insert(sessions).values({ tokenHash, userId, expiresAt });
 
-	setCookie(c, "session_token", sessionToken, {
-		httpOnly: true,
-		secure: true,
-		sameSite: "Lax",
-		path: "/",
-		maxAge: 30 * 24 * 60 * 60,
-	});
+	setCookie(c, sessionCookieName(c.req.url), sessionToken, sessionCookieOptions(c.req.url));
 
 	return c.redirect("/", 302);
 });
 
-auth.post("/logout", async (c) => {
-	const token = getCookie(c, "session_token");
+auth.post("/logout", verifyCsrf, async (c) => {
+	const token = getCookie(c, sessionCookieName(c.req.url));
 	if (token) {
 		const db = drizzle(c.env.DB);
 		const tokenHash = await hashToken(token);
 		await db.delete(sessions).where(eq(sessions.tokenHash, tokenHash));
 	}
-	deleteCookie(c, "session_token", { path: "/" });
+	deleteCookie(c, sessionCookieName(c.req.url), { path: "/" });
 	return c.json({ ok: true });
-});
-
-// --- 認証済みユーザー専用ページ（authRenderer: 独自レイアウト） ---
-
-auth.use("/settings", requireAuth, authRenderer);
-auth.use("/activities", requireAuth, authRenderer);
-
-auth.get("/settings", async (c) => {
-	const user = c.get("user")!;
-	const db = drizzle(c.env.DB);
-
-	const [userRow, userPasskeys] = await Promise.all([
-		db.select().from(users).where(eq(users.id, user.id)).limit(1),
-		db.select({ id: passkeys.id, name: passkeys.name, createdAt: passkeys.createdAt })
-			.from(passkeys)
-			.where(eq(passkeys.userId, user.id)),
-	]);
-
-	const u = userRow[0];
-	if (!u) return c.notFound();
-
-	return c.render(
-		<SettingsPage
-			user={{
-				name: u.name,
-				unixName: u.unixName,
-				wikidotId: u.wikidotId,
-				createdAt: u.createdAt,
-				lastLoginAt: u.lastLoginAt,
-			}}
-			passkeys={userPasskeys}
-		/>,
-	);
-});
-
-auth.get("/activities", async (c) => {
-	const user = c.get("user")!;
-	const db = drizzle(c.env.DB);
-
-	const page = Math.max(1, Number(c.req.query("page") ?? 1));
-	const perPage = Math.min(100, Math.max(10, Number(c.req.query("per_page") ?? 20)));
-	const search = c.req.query("q") ?? "";
-	const offset = (page - 1) * perPage;
-
-	// 条件組み立て
-	const conditions = [eq(revisions.createdBy, user.id)];
-	if (search) {
-		conditions.push(like(pages.unixName, `%${search}%`));
-	}
-	const whereClause = conditions.length === 1 ? conditions[0] : drizzleAnd(...conditions);
-
-	// 総件数取得
-	const countResult = await db
-		.select({ count: sql<number>`count(*)` })
-		.from(revisions)
-		.innerJoin(pages, eq(revisions.pageId, pages.id))
-		.where(whereClause);
-	const totalCount = countResult[0]?.count ?? 0;
-	const totalPages = Math.ceil(totalCount / perPage);
-
-	// データ取得
-	const rows = await db
-		.select({
-			revisionNumber: revisions.revisionNumber,
-			title: revisions.title,
-			comment: revisions.comment,
-			createdAt: revisions.createdAt,
-			category: pages.category,
-			unixName: pages.unixName,
-		})
-		.from(revisions)
-		.innerJoin(pages, eq(revisions.pageId, pages.id))
-		.where(whereClause)
-		.orderBy(desc(revisions.createdAt))
-		.limit(perPage)
-		.offset(offset);
-
-	return c.render(
-		<ActivitiesPage
-			revisions={rows.map((r) => ({
-				pagePath: `${r.category}:${r.unixName}`,
-				revisionNumber: r.revisionNumber,
-				title: r.title,
-				comment: r.comment,
-				createdAt: r.createdAt,
-			}))}
-			pagination={{ page, perPage, totalCount, totalPages }}
-			search={search}
-		/>,
-	);
 });
 
 export { auth };

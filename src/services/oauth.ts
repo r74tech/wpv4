@@ -84,6 +84,9 @@ export async function exchangeCode(
 }
 
 function base64UrlEncode(bytes: Uint8Array): string {
-	const binary = String.fromCharCode(...bytes);
+	let binary = "";
+	for (let i = 0; i < bytes.length; i++) {
+		binary += String.fromCharCode(bytes[i]);
+	}
 	return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }

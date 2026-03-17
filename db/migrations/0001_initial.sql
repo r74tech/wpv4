@@ -72,6 +72,12 @@ CREATE TABLE IF NOT EXISTS passkeys (
 );
 CREATE INDEX IF NOT EXISTS idx_passkeys_user_id ON passkeys(user_id);
 
+CREATE TABLE IF NOT EXISTS auth_state (
+    key TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS votes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     page_id INTEGER NOT NULL REFERENCES pages(id) ON DELETE CASCADE,

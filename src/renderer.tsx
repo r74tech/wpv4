@@ -1,7 +1,8 @@
 import { jsxRenderer } from "hono/jsx-renderer";
+import { getClientScriptPath } from "./client-manifest";
 
 export const renderer = jsxRenderer(({ children }) => {
-	const clientScript = import.meta.env.PROD ? "/static/client.js" : "/src/client/main.ts";
+	const clientScript = getClientScriptPath("main");
 	return (
 		<html lang="ja">
 			<head>

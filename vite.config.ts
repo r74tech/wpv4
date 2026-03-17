@@ -9,9 +9,12 @@ export default defineConfig(({ mode }) => {
 		return {
 			build: {
 				rollupOptions: {
-					input: "src/client/main.ts",
+					input: {
+						main: "src/client/main.ts",
+						auth: "src/client/auth.ts",
+					},
 					output: {
-						entryFileNames: "static/client.[hash].js",
+						entryFileNames: "static/[name].[hash].js",
 					},
 				},
 				outDir: "dist",

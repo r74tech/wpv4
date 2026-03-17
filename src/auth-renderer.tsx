@@ -1,6 +1,8 @@
 import { jsxRenderer } from "hono/jsx-renderer";
+import { getClientScriptPath } from "./client-manifest";
 
 export const authRenderer = jsxRenderer(({ children }) => {
+	const clientScript = getClientScriptPath("auth");
 	return (
 		<html lang="ja">
 			<head>
@@ -17,7 +19,7 @@ export const authRenderer = jsxRenderer(({ children }) => {
 					</header>
 					<main class="auth-main">{children}</main>
 				</div>
-				<script type="module" src="/src/client/auth.ts" />
+				<script type="module" src={clientScript} />
 			</body>
 		</html>
 	);

@@ -15,7 +15,10 @@ import type {
 } from "@simplewebauthn/server";
 import { passkeys, users, sessions } from "@/db/schema";
 import { requireAuth, hashToken } from "@/middleware/session";
-import { setCookie } from "hono/cookie";
+import { verifyCsrf } from "@/middleware/csrf";
+import { storeChallenge, consumeChallenge, cleanupExpiredState } from "@/services/challenge-store";
+import { getCookie, setCookie } from "hono/cookie";
+import { passkeyCookieName, sessionCookieName, stateCookieOptions, sessionCookieOptions } from "@/lib/cookie";
 import type { AppEnv } from "@/types/env";
 
 const RP_NAME = "Wikitext Previewer v4";
@@ -29,7 +32,10 @@ function getOrigin(url: string): string {
 }
 
 function uint8ArrayToBase64Url(bytes: Uint8Array): string {
-	const binary = String.fromCharCode(...bytes);
+	let binary = "";
+	for (let i = 0; i < bytes.length; i++) {
+		binary += String.fromCharCode(bytes[i]);
+	}
 	return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
@@ -45,6 +51,17 @@ function base64UrlToUint8Array(str: string): Uint8Array<ArrayBuffer> {
 
 const passkeyApi = new Hono<AppEnv>();
 
+// 変更系にCSRF保護を適用
+passkeyApi.use("*", verifyCsrf);
+
+// 低確率で期限切れstate掃除
+passkeyApi.use("*", async (c, next) => {
+	if (Math.random() < 0.01) {
+		c.executionCtx.waitUntil(cleanupExpiredState(c.env.DB));
+	}
+	return next();
+});
+
 // --- 登録 (認証済みユーザー) ---
 
 passkeyApi.get("/register/options", requireAuth, async (c) => {
@@ -59,6 +76,7 @@ passkeyApi.get("/register/options", requireAuth, async (c) => {
 	const options = await generateRegistrationOptions({
 		rpName: RP_NAME,
 		rpID: getRpId(c.req.url),
+		userID: new Uint8Array(new TextEncoder().encode(String(user.id)).buffer) as Uint8Array<ArrayBuffer>,
 		userName: user.unixName,
 		userDisplayName: user.name,
 		excludeCredentials: existing.map((p) => ({
@@ -70,38 +88,49 @@ passkeyApi.get("/register/options", requireAuth, async (c) => {
 		},
 	});
 
-	// challengeをcookieに保存（短命）
-	setCookie(c, "passkey_challenge", options.challenge, {
-		httpOnly: true,
-		secure: true,
-		sameSite: "Lax",
-		path: "/",
-		maxAge: 300,
+	// challengeをサーバーサイドに保存し、キーのみをcookieで渡す
+	const stateKey = await storeChallenge(c.env.DB, {
+		challenge: options.challenge,
+		type: "register",
+		userId: String(user.id),
 	});
+
+	setCookie(c, passkeyCookieName(c.req.url), stateKey, stateCookieOptions(c.req.url));
 
 	return c.json(options);
 });
 
 const registerSchema = z.object({
-	response: z.any(),
-	name: z.string().default(""),
+	response: z.unknown(),
+	name: z.string().max(100).default(""),
 });
 
 passkeyApi.post("/register/verify", requireAuth, zValidator("json", registerSchema), async (c) => {
 	const user = c.get("user")!;
 	const body = c.req.valid("json");
-	const challenge = c.req.header("Cookie")?.match(/passkey_challenge=([^;]+)/)?.[1];
+	const stateKey = getCookie(c, passkeyCookieName(c.req.url));
 
-	if (!challenge) {
-		return c.json({ error: "Challenge not found" }, 400);
+	if (!stateKey) {
+		return c.json({ error: "Challenge expired or missing" }, 400);
 	}
 
-	const verification = await verifyRegistrationResponse({
-		response: body.response as RegistrationResponseJSON,
-		expectedChallenge: challenge,
-		expectedOrigin: getOrigin(c.req.url),
-		expectedRPID: getRpId(c.req.url),
-	});
+	// サーバーサイドから取得（使い捨て）
+	const state = await consumeChallenge(c.env.DB, stateKey);
+	if (!state || state.type !== "register" || state.userId !== String(user.id)) {
+		return c.json({ error: "Invalid or expired challenge" }, 400);
+	}
+
+	let verification;
+	try {
+		verification = await verifyRegistrationResponse({
+			response: body.response as unknown as RegistrationResponseJSON,
+			expectedChallenge: state.challenge,
+			expectedOrigin: getOrigin(c.req.url),
+			expectedRPID: getRpId(c.req.url),
+		});
+	} catch {
+		return c.json({ error: "Verification failed" }, 400);
+	}
 
 	if (!verification.verified || !verification.registrationInfo) {
 		return c.json({ error: "Verification failed" }, 400);
@@ -129,9 +158,15 @@ passkeyApi.post("/register/verify", requireAuth, zValidator("json", registerSche
 passkeyApi.delete("/:id", requireAuth, async (c) => {
 	const user = c.get("user")!;
 	const id = Number(c.req.param("id"));
+	if (!Number.isFinite(id) || id <= 0) {
+		return c.json({ error: "Invalid ID" }, 400);
+	}
 	const db = drizzle(c.env.DB);
 
-	await db.delete(passkeys).where(and(eq(passkeys.id, id), eq(passkeys.userId, user.id)));
+	await db
+		.delete(passkeys)
+		.where(and(eq(passkeys.id, id), eq(passkeys.userId, user.id)));
+
 	return c.json({ ok: true });
 });
 
@@ -143,30 +178,35 @@ passkeyApi.get("/login/options", async (c) => {
 		userVerification: "preferred",
 	});
 
-	setCookie(c, "passkey_challenge", options.challenge, {
-		httpOnly: true,
-		secure: true,
-		sameSite: "Lax",
-		path: "/",
-		maxAge: 300,
+	const stateKey = await storeChallenge(c.env.DB, {
+		challenge: options.challenge,
+		type: "login",
 	});
+
+	setCookie(c, passkeyCookieName(c.req.url), stateKey, stateCookieOptions(c.req.url));
 
 	return c.json(options);
 });
 
 const loginSchema = z.object({
-	response: z.any(),
+	response: z.unknown(),
 });
 
 passkeyApi.post("/login/verify", zValidator("json", loginSchema), async (c) => {
 	const body = c.req.valid("json");
-	const challenge = c.req.header("Cookie")?.match(/passkey_challenge=([^;]+)/)?.[1];
+	const stateKey = getCookie(c, passkeyCookieName(c.req.url));
 
-	if (!challenge) {
-		return c.json({ error: "Challenge not found" }, 400);
+	if (!stateKey) {
+		return c.json({ error: "Authentication failed" }, 401);
 	}
 
-	const authResponse = body.response as AuthenticationResponseJSON;
+	const state = await consumeChallenge(c.env.DB, stateKey);
+	if (!state || state.type !== "login") {
+		// 均一なエラーメッセージ（oracle防止）
+		return c.json({ error: "Authentication failed" }, 401);
+	}
+
+	const authResponse = body.response as unknown as AuthenticationResponseJSON;
 	const db = drizzle(c.env.DB);
 
 	const pk = await db
@@ -176,21 +216,27 @@ passkeyApi.post("/login/verify", zValidator("json", loginSchema), async (c) => {
 		.limit(1);
 
 	if (!pk[0]) {
-		return c.json({ error: "Passkey not found" }, 401);
+		// 均一なエラーメッセージ・レスポンスタイミング
+		return c.json({ error: "Authentication failed" }, 401);
 	}
 
-	const verification = await verifyAuthenticationResponse({
-		response: authResponse,
-		expectedChallenge: challenge,
-		expectedOrigin: getOrigin(c.req.url),
-		expectedRPID: getRpId(c.req.url),
-		credential: {
-			id: pk[0].credentialId,
-			publicKey: base64UrlToUint8Array(pk[0].publicKey),
-			counter: pk[0].counter,
-			transports: pk[0].transports ? JSON.parse(pk[0].transports) : undefined,
-		},
-	});
+	let verification;
+	try {
+		verification = await verifyAuthenticationResponse({
+			response: authResponse,
+			expectedChallenge: state.challenge,
+			expectedOrigin: getOrigin(c.req.url),
+			expectedRPID: getRpId(c.req.url),
+			credential: {
+				id: pk[0].credentialId,
+				publicKey: base64UrlToUint8Array(pk[0].publicKey),
+				counter: pk[0].counter,
+				transports: pk[0].transports ? JSON.parse(pk[0].transports) : undefined,
+			},
+		});
+	} catch {
+		return c.json({ error: "Authentication failed" }, 401);
+	}
 
 	if (!verification.verified) {
 		return c.json({ error: "Authentication failed" }, 401);
@@ -213,19 +259,12 @@ passkeyApi.post("/login/verify", zValidator("json", loginSchema), async (c) => {
 		expiresAt,
 	});
 
-	// last_login_at更新
 	await db
 		.update(users)
 		.set({ lastLoginAt: new Date().toISOString() })
 		.where(eq(users.id, pk[0].userId));
 
-	setCookie(c, "session_token", sessionToken, {
-		httpOnly: true,
-		secure: true,
-		sameSite: "Lax",
-		path: "/",
-		maxAge: 30 * 24 * 60 * 60,
-	});
+	setCookie(c, sessionCookieName(c.req.url), sessionToken, sessionCookieOptions(c.req.url));
 
 	return c.json({ ok: true });
 });

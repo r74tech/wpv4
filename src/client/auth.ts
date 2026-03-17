@@ -68,8 +68,8 @@ function updateNav() {
 			const d = data as { authenticated: boolean; user?: { name: string } };
 			if (d.authenticated) {
 				nav.innerHTML =
-					`<a href="/auth/settings">Settings</a>` +
-					`<a href="/auth/activities">Activities</a>` +
+					`<a href="/user/settings">Settings</a>` +
+					`<a href="/user/activities">Activities</a>` +
 					`<a href="/">Wiki</a>` +
 					`<span>${d.user?.name ?? ""}</span>`;
 			}
