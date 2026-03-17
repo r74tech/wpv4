@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { api } from "./routes/api";
 import { auth } from "./routes/auth";
+import { passkeyApi } from "./routes/passkey-api";
 import { renderer } from "./renderer";
 import { resolveSession } from "./middleware/session";
 import type { AppEnv } from "./types/env";
@@ -16,6 +17,7 @@ app.use("/api/*", cors());
 
 // ルート登録
 app.route("/api", api);
+app.route("/api/passkeys", passkeyApi);
 app.route("/auth", auth);
 
 // SSR: HTML shell を返す（コンテンツはクライアントJSが読み込む）

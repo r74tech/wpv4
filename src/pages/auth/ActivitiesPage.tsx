@@ -8,38 +8,98 @@ type Revision = {
 	createdAt: string | null;
 };
 
-type Props = {
-	revisions: Revision[];
+type Pagination = {
+	page: number;
+	perPage: number;
+	totalCount: number;
+	totalPages: number;
 };
 
-export const ActivitiesPage: FC<Props> = ({ revisions }) => (
-	<>
-		<div id="page-title"><span>My Activities</span></div>
-		<div id="page-content">
+type Props = {
+	revisions: Revision[];
+	pagination: Pagination;
+	search: string;
+};
+
+export const ActivitiesPage: FC<Props> = ({ revisions, pagination, search }) => {
+	const { page, totalCount, totalPages } = pagination;
+	const baseUrl = "/auth/activities";
+
+	const pageLink = (p: number, extra?: string) => {
+		const params = new URLSearchParams();
+		params.set("page", String(p));
+		if (search) params.set("q", search);
+		if (extra) params.set("per_page", extra);
+		return `${baseUrl}?${params}`;
+	};
+
+	return (
+		<>
+			<h1>Activities</h1>
+
+			<form method="get" action={baseUrl} style="display:flex;gap:0.5rem;margin-bottom:1.5rem">
+				<input
+					type="text"
+					name="q"
+					value={search}
+					placeholder="Search by page name..."
+					style="flex:1;padding:0.5rem 0.75rem;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:0.875rem"
+				/>
+				<button type="submit" class="btn">Search</button>
+				{search && <a href={baseUrl} class="btn">Clear</a>}
+			</form>
+
 			{revisions.length === 0 ? (
-				<p>No activities yet.</p>
+				<div class="empty-state">
+					{search ? `No results for "${search}"` : "No activities yet"}
+				</div>
 			) : (
-				<table class="page-history">
-					<tbody>
-						<tr>
-							<td><strong>Page</strong></td>
-							<td><strong>Rev</strong></td>
-							<td><strong>Title</strong></td>
-							<td><strong>Comment</strong></td>
-							<td><strong>Date</strong></td>
-						</tr>
-						{revisions.map((r) => (
+				<>
+					<table class="activity-table">
+						<thead>
 							<tr>
-								<td><a href={`/${r.pagePath}`}>{r.pagePath}</a></td>
-								<td>{String(r.revisionNumber)}</td>
-								<td>{r.title}</td>
-								<td>{r.comment ?? ""}</td>
-								<td>{r.createdAt ?? ""}</td>
+								<th>Page</th>
+								<th>Rev</th>
+								<th>Title</th>
+								<th>Comment</th>
+								<th>Date</th>
 							</tr>
-						))}
-					</tbody>
-				</table>
+						</thead>
+						<tbody>
+							{revisions.map((r) => (
+								<tr>
+									<td>
+										<a href={`/${r.pagePath}`}>{r.pagePath}</a>
+									</td>
+									<td>{String(r.revisionNumber)}</td>
+									<td>{r.title}</td>
+									<td>{r.comment ?? ""}</td>
+									<td>{r.createdAt ?? ""}</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+
+					<div style="display:flex;justify-content:space-between;align-items:center;margin-top:1.5rem;font-size:0.85rem;color:var(--text-muted)">
+						<span>{totalCount} total</span>
+						<div style="display:flex;gap:0.5rem;align-items:center">
+							{page > 1 ? (
+								<a href={pageLink(page - 1)} class="btn btn-sm">&larr; Prev</a>
+							) : (
+								<span class="btn btn-sm" style="opacity:0.3;pointer-events:none">&larr; Prev</span>
+							)}
+							<span>
+								{page} / {totalPages}
+							</span>
+							{page < totalPages ? (
+								<a href={pageLink(page + 1)} class="btn btn-sm">Next &rarr;</a>
+							) : (
+								<span class="btn btn-sm" style="opacity:0.3;pointer-events:none">Next &rarr;</span>
+							)}
+						</div>
+					</div>
+				</>
 			)}
-		</div>
-	</>
-);
+		</>
+	);
+};

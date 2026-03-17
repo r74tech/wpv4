@@ -1,5 +1,11 @@
 import type { FC } from "hono/jsx";
 
+type Passkey = {
+	id: number;
+	name: string;
+	createdAt: string | null;
+};
+
 type Props = {
 	user: {
 		name: string;
@@ -8,28 +14,57 @@ type Props = {
 		createdAt: string | null;
 		lastLoginAt: string | null;
 	};
+	passkeys: Passkey[];
 };
 
-export const SettingsPage: FC<Props> = ({ user }) => (
+export const SettingsPage: FC<Props> = ({ user, passkeys }) => (
 	<>
-		<div id="page-title"><span>Settings</span></div>
-		<div id="page-content">
-			<h2>Profile</h2>
-			<table class="wiki-content-table">
-				<tr><td><strong>Name</strong></td><td>{user.name}</td></tr>
-				<tr><td><strong>Unix Name</strong></td><td>{user.unixName}</td></tr>
-				<tr><td><strong>Wikidot ID</strong></td><td>{String(user.wikidotId)}</td></tr>
-				<tr><td><strong>Registered</strong></td><td>{user.createdAt ?? ""}</td></tr>
-				<tr><td><strong>Last Login</strong></td><td>{user.lastLoginAt ?? ""}</td></tr>
-			</table>
+		<h1>Settings</h1>
 
-			<h2>Passkeys</h2>
-			<div id="passkey-list">
-				<p>Loading passkeys...</p>
+		<h2>Profile</h2>
+		<div class="card">
+			<dl class="info-grid">
+				<dt>Name</dt>
+				<dd>{user.name}</dd>
+				<dt>Unix Name</dt>
+				<dd>{user.unixName}</dd>
+				<dt>Wikidot ID</dt>
+				<dd>{String(user.wikidotId)}</dd>
+				<dt>Registered</dt>
+				<dd>{user.createdAt ?? "—"}</dd>
+				<dt>Last Login</dt>
+				<dd>{user.lastLoginAt ?? "—"}</dd>
+			</dl>
+		</div>
+
+		<h2>Passkeys</h2>
+		<div id="passkey-status" />
+		{passkeys.length === 0 ? (
+			<div class="empty-state">No passkeys registered</div>
+		) : (
+			<div class="passkey-list">
+				{passkeys.map((pk) => (
+					<div class="passkey-item" data-passkey-id={String(pk.id)}>
+						<div class="passkey-item-info">
+							<span class="passkey-item-name">{pk.name || "Unnamed passkey"}</span>
+							<span class="passkey-item-date">{pk.createdAt ?? ""}</span>
+						</div>
+						<button
+							type="button"
+							class="btn btn-danger btn-sm"
+							data-action="delete-passkey"
+							data-passkey-id={String(pk.id)}
+						>
+							Delete
+						</button>
+					</div>
+				))}
 			</div>
-			<div id="passkey-actions">
-				<button id="btn-register-passkey" type="button">Register new Passkey</button>
-			</div>
+		)}
+		<div style="margin-top: 1rem">
+			<button type="button" class="btn btn-primary" id="btn-register-passkey">
+				Register new Passkey
+			</button>
 		</div>
 	</>
 );

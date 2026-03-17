@@ -1,20 +1,30 @@
 import { Hono } from "hono";
 import { setCookie, getCookie, deleteCookie } from "hono/cookie";
 import { drizzle } from "drizzle-orm/d1";
-import { eq, desc } from "drizzle-orm";
-import { users, sessions, revisions, pages } from "@/db/schema";
+import { eq, desc, like, sql, and as drizzleAnd } from "drizzle-orm";
+import { users, sessions, revisions, pages, passkeys } from "@/db/schema";
 import { generatePkce, generateState, buildAuthorizeUrl, exchangeCode } from "@/services/oauth";
 import { hashToken, requireAuth } from "@/middleware/session";
-import { renderer } from "@/renderer";
+import { authRenderer } from "@/auth-renderer";
 import { SettingsPage } from "@/pages/auth/SettingsPage";
 import { ActivitiesPage } from "@/pages/auth/ActivitiesPage";
+import { LoginPage } from "@/pages/auth/LoginPage";
 import type { AppEnv } from "@/types/env";
 
 const auth = new Hono<AppEnv>();
 
+// --- ログインページ ---
+
+auth.use("/login", authRenderer);
+auth.get("/login", (c) => {
+	const user = c.get("user");
+	if (user) return c.redirect("/", 302);
+	return c.render(<LoginPage />);
+});
+
 // --- OAuth フロー ---
 
-auth.get("/login", async (c) => {
+auth.get("/oauth", async (c) => {
 	const { codeVerifier, codeChallenge } = await generatePkce();
 	const state = generateState();
 
@@ -117,16 +127,22 @@ auth.post("/logout", async (c) => {
 	return c.json({ ok: true });
 });
 
-// --- 認証済みユーザー専用ページ（renderer経由でWikidot shell内に描画） ---
+// --- 認証済みユーザー専用ページ（authRenderer: 独自レイアウト） ---
 
-auth.use("/settings", requireAuth, renderer);
-auth.use("/activities", requireAuth, renderer);
+auth.use("/settings", requireAuth, authRenderer);
+auth.use("/activities", requireAuth, authRenderer);
 
 auth.get("/settings", async (c) => {
 	const user = c.get("user")!;
 	const db = drizzle(c.env.DB);
 
-	const userRow = await db.select().from(users).where(eq(users.id, user.id)).limit(1);
+	const [userRow, userPasskeys] = await Promise.all([
+		db.select().from(users).where(eq(users.id, user.id)).limit(1),
+		db.select({ id: passkeys.id, name: passkeys.name, createdAt: passkeys.createdAt })
+			.from(passkeys)
+			.where(eq(passkeys.userId, user.id)),
+	]);
+
 	const u = userRow[0];
 	if (!u) return c.notFound();
 
@@ -139,6 +155,7 @@ auth.get("/settings", async (c) => {
 				createdAt: u.createdAt,
 				lastLoginAt: u.lastLoginAt,
 			}}
+			passkeys={userPasskeys}
 		/>,
 	);
 });
@@ -147,7 +164,29 @@ auth.get("/activities", async (c) => {
 	const user = c.get("user")!;
 	const db = drizzle(c.env.DB);
 
-	const recentRevisions = await db
+	const page = Math.max(1, Number(c.req.query("page") ?? 1));
+	const perPage = Math.min(100, Math.max(10, Number(c.req.query("per_page") ?? 20)));
+	const search = c.req.query("q") ?? "";
+	const offset = (page - 1) * perPage;
+
+	// 条件組み立て
+	const conditions = [eq(revisions.createdBy, user.id)];
+	if (search) {
+		conditions.push(like(pages.unixName, `%${search}%`));
+	}
+	const whereClause = conditions.length === 1 ? conditions[0] : drizzleAnd(...conditions);
+
+	// 総件数取得
+	const countResult = await db
+		.select({ count: sql<number>`count(*)` })
+		.from(revisions)
+		.innerJoin(pages, eq(revisions.pageId, pages.id))
+		.where(whereClause);
+	const totalCount = countResult[0]?.count ?? 0;
+	const totalPages = Math.ceil(totalCount / perPage);
+
+	// データ取得
+	const rows = await db
 		.select({
 			revisionNumber: revisions.revisionNumber,
 			title: revisions.title,
@@ -158,19 +197,22 @@ auth.get("/activities", async (c) => {
 		})
 		.from(revisions)
 		.innerJoin(pages, eq(revisions.pageId, pages.id))
-		.where(eq(revisions.createdBy, user.id))
+		.where(whereClause)
 		.orderBy(desc(revisions.createdAt))
-		.limit(50);
+		.limit(perPage)
+		.offset(offset);
 
 	return c.render(
 		<ActivitiesPage
-			revisions={recentRevisions.map((r) => ({
+			revisions={rows.map((r) => ({
 				pagePath: `${r.category}:${r.unixName}`,
 				revisionNumber: r.revisionNumber,
 				title: r.title,
 				comment: r.comment,
 				createdAt: r.createdAt,
 			}))}
+			pagination={{ page, perPage, totalCount, totalPages }}
+			search={search}
 		/>,
 	);
 });

@@ -58,6 +58,20 @@ CREATE TABLE IF NOT EXISTS page_tags (
 CREATE INDEX IF NOT EXISTS idx_page_tags_page_id ON page_tags(page_id);
 CREATE INDEX IF NOT EXISTS idx_page_tags_tag ON page_tags(tag);
 
+CREATE TABLE IF NOT EXISTS passkeys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    credential_id TEXT UNIQUE NOT NULL,
+    public_key TEXT NOT NULL,
+    counter INTEGER NOT NULL DEFAULT 0,
+    device_type TEXT,
+    backed_up INTEGER NOT NULL DEFAULT 0,
+    transports TEXT,
+    name TEXT NOT NULL DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_passkeys_user_id ON passkeys(user_id);
+
 CREATE TABLE IF NOT EXISTS votes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     page_id INTEGER NOT NULL REFERENCES pages(id) ON DELETE CASCADE,

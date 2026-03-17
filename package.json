@@ -14,6 +14,8 @@
 	},
 	"dependencies": {
 		"@hono/zod-validator": "^0.7.6",
+		"@simplewebauthn/browser": "^13.3.0",
+		"@simplewebauthn/server": "^13.3.0",
 		"@wdprlib/parser": "^2.0.10",
 		"@wdprlib/render": "^1.3.3",
 		"@wdprlib/runtime": "^1.0.2",

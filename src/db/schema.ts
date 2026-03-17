@@ -86,6 +86,28 @@ export const pageTags = sqliteTable(
 	],
 );
 
+export const passkeys = sqliteTable(
+	"passkeys",
+	{
+		id: integer("id").primaryKey({ autoIncrement: true }),
+		userId: integer("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		credentialId: text("credential_id").unique().notNull(),
+		publicKey: text("public_key").notNull(),
+		counter: integer("counter").notNull().default(0),
+		deviceType: text("device_type"),
+		backedUp: integer("backed_up").notNull().default(0),
+		transports: text("transports"),
+		name: text("name").notNull().default(""),
+		createdAt: text("created_at").default(now),
+	},
+	(table) => [
+		index("idx_passkeys_user_id").on(table.userId),
+		uniqueIndex("idx_passkeys_credential_id").on(table.credentialId),
+	],
+);
+
 export const votes = sqliteTable(
 	"votes",
 	{
