@@ -115,7 +115,7 @@ function updatePageOptions(path: string, isNew: boolean) {
 // --- ナビゲーション ---
 
 function navigateTo(path: string) {
-	const resolved = path || "main:start";
+	const resolved = path || "main";
 	history.pushState(null, "", `/${resolved}`);
 	loadPage(resolved);
 }
@@ -124,7 +124,7 @@ function getPagePathFromUrl(): string | null {
 	const path = window.location.pathname.slice(1); // 先頭の / を除去
 	// auth系パスはページではない
 	if (path.startsWith("auth/")) return null;
-	return path || "main:start";
+	return path || "main";
 }
 
 // --- サイドバー・トップバー ---

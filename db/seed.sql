@@ -1,6 +1,6 @@
 -- 開発用シードデータ
 INSERT INTO pages (category, unix_name, title, source, revision_count) VALUES
-('main', 'start', 'Welcome', '+ Welcome to Wikitext Previewer v4
+('_default', 'main', 'Welcome', '+ Welcome to Wikitext Previewer v4
 
 This is the **main page** of the Wikitext Previewer.
 
@@ -25,9 +25,9 @@ console.log("Hello, world!");
 [[collapsible show="+ Show more" hide="- Hide"]]
 This is collapsible content.
 [[/collapsible]]', 0),
-('nav', 'side', 'Side Navigation', '* [[[main:start|Home]]]
+('nav', 'side', 'Side Navigation', '* [[[main|Home]]]
 * [[[nav:side|Sidebar]]]', 0),
-('nav', 'top', 'Top Navigation', '* [[[main:start|Home]]]', 0);
+('nav', 'top', 'Top Navigation', '* [[[main|Home]]]', 0);
 
 -- 初期リビジョン
 INSERT INTO revisions (page_id, revision_number, title, source, comment) VALUES
@@ -56,6 +56,6 @@ console.log("Hello, world!");
 [[collapsible show="+ Show more" hide="- Hide"]]
 This is collapsible content.
 [[/collapsible]]', 'Initial page'),
-(2, 0, 'Side Navigation', '* [[[main:start|Home]]]
+(2, 0, 'Side Navigation', '* [[[main|Home]]]
 * [[[nav:side|Sidebar]]]', 'Initial sidebar'),
-(3, 0, 'Top Navigation', '* [[[main:start|Home]]]', 'Initial topbar');
+(3, 0, 'Top Navigation', '* [[[main|Home]]]', 'Initial topbar');

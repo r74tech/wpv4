@@ -26,7 +26,7 @@ app.route("/user", user);
 
 app.get("*", async (c) => {
 	const rawPath = c.req.path.slice(1);
-	const pagePath = rawPath || "main:start";
+	const pagePath = rawPath || "main";
 	const [category, unixName] = parsePagePath(pagePath);
 
 	const db = drizzle(c.env.DB);
