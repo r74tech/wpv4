@@ -15,11 +15,7 @@ type Props = PropsWithChildren<{
 
 export const WikidotShell: FC<Props> = ({ children, sidebar, topbar, pageStyles }) => {
 	const clientScript = getClientScriptPath("main");
-	const allStyles = [
-		...(sidebar?.styles ?? []),
-		...(topbar?.styles ?? []),
-		...(pageStyles ?? []),
-	];
+	const allStyles = [...(sidebar?.styles ?? []), ...(topbar?.styles ?? []), ...(pageStyles ?? [])];
 
 	return (
 		<html lang="ja">
@@ -28,9 +24,7 @@ export const WikidotShell: FC<Props> = ({ children, sidebar, topbar, pageStyles 
 				<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 				<title>Wikitext Previewer v4</title>
 				<link href="/static/style.css" rel="stylesheet" />
-				{allStyles.length > 0 && (
-					<style>{raw(allStyles.join("\n"))}</style>
-				)}
+				{allStyles.length > 0 && <style>{raw(allStyles.join("\n"))}</style>}
 			</head>
 			<body id="html-body">
 				<div id="skrollr-body">
@@ -60,15 +54,19 @@ export const WikidotShell: FC<Props> = ({ children, sidebar, topbar, pageStyles 
 											<input class="button btn" type="submit" name="search" value="Search" />
 										</form>
 									</div>
-									<div id="top-bar">
-										{raw(topbar?.html ?? "")}
-									</div>
+									<div id="top-bar">{raw(topbar?.html ?? "")}</div>
 									<div id="login-status">
 										<span />
 									</div>
-									<div id="header-extra-div-1"><span /></div>
-									<div id="header-extra-div-2"><span /></div>
-									<div id="header-extra-div-3"><span /></div>
+									<div id="header-extra-div-1">
+										<span />
+									</div>
+									<div id="header-extra-div-2">
+										<span />
+									</div>
+									<div id="header-extra-div-3">
+										<span />
+									</div>
 								</div>
 								<div id="content-wrap">
 									<div id="side-bar">
@@ -102,11 +100,21 @@ export const WikidotShell: FC<Props> = ({ children, sidebar, topbar, pageStyles 
 								<div id="extrac-div-3" />
 							</div>
 						</div>
-						<div id="extra-div-1"><span /></div>
-						<div id="extra-div-2"><span /></div>
-						<div id="extra-div-3"><span /></div>
-						<div id="extra-div-4"><span /></div>
-						<div id="extra-div-5"><span /></div>
+						<div id="extra-div-1">
+							<span />
+						</div>
+						<div id="extra-div-2">
+							<span />
+						</div>
+						<div id="extra-div-3">
+							<span />
+						</div>
+						<div id="extra-div-4">
+							<span />
+						</div>
+						<div id="extra-div-5">
+							<span />
+						</div>
 					</div>
 				</div>
 				<script type="module" src={clientScript} />

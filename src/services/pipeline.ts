@@ -110,7 +110,7 @@ export async function renderWikitext(
 	const resolvedAst = await resolveModules(ast, dataProvider, resolveOptions);
 
 	// ページ存在確認用のSet
-	const existingPages = options.existingPages ?? await getExistingPageSet(env.DB);
+	const existingPages = options.existingPages ?? (await getExistingPageSet(env.DB));
 
 	// HTML生成
 	const renderOptions: RenderOptions = {

@@ -106,8 +106,8 @@ function updatePageOptions(path: string, isNew: boolean) {
 	const buttons = isNew
 		? `<a href="javascript:;" data-action="create" data-path="${path}">+ Create page</a>`
 		: `<a href="javascript:;" data-action="edit" data-path="${path}">Edit</a>` +
-		  `<a href="javascript:;" data-action="source" data-path="${path}">Source</a>` +
-		  `<a href="javascript:;" data-action="history" data-path="${path}">History</a>`;
+			`<a href="javascript:;" data-action="source" data-path="${path}">Source</a>` +
+			`<a href="javascript:;" data-action="history" data-path="${path}">History</a>`;
 
 	setHtml(options, buttons);
 }
@@ -136,7 +136,7 @@ async function loadSidebar() {
 	if (sidebar.children.length > 1) return;
 	try {
 		const res = await fetch("/api/sidebar");
-		const data = await res.json() as { html: string };
+		const data = (await res.json()) as { html: string };
 		const actions = sidebar.querySelector("#side-bar-actions");
 		const actionsHtml = actions ? actions.outerHTML : "";
 		sidebar.innerHTML = actionsHtml + (data.html || "");
@@ -152,7 +152,7 @@ async function loadTopbar() {
 	if (topbar.innerHTML.trim()) return;
 	try {
 		const res = await fetch("/api/topbar");
-		const data = await res.json() as { html: string };
+		const data = (await res.json()) as { html: string };
 		setHtml(topbar, data.html || "");
 	} catch {
 		// トップバーなしでも動作する
@@ -180,12 +180,12 @@ function updateLoginStatus() {
 		setHtml(
 			loginStatus,
 			`<span class="printuser">${name}</span>` +
-			` | <a id="account-topbutton" href="javascript:;">▼</a>` +
-			`<div id="account-options"><ul>` +
-			`<li><a href="/user/settings">Settings</a></li>` +
-			`<li><a href="/user/activities">Activities</a></li>` +
-			`<li><a href="javascript:;" id="btn-logout">Sign out</a></li>` +
-			`</ul></div>`,
+				` | <a id="account-topbutton" href="javascript:;">▼</a>` +
+				`<div id="account-options"><ul>` +
+				`<li><a href="/user/settings">Settings</a></li>` +
+				`<li><a href="/user/activities">Activities</a></li>` +
+				`<li><a href="javascript:;" id="btn-logout">Sign out</a></li>` +
+				`</ul></div>`,
 		);
 
 		// ▼ トグル
@@ -198,10 +198,7 @@ function updateLoginStatus() {
 			});
 		}
 	} else {
-		setHtml(
-			loginStatus,
-			`<a href="/auth/login" id="login-link">Sign in / Create account</a>`,
-		);
+		setHtml(loginStatus, `<a href="/auth/login" id="login-link">Sign in / Create account</a>`);
 	}
 }
 
@@ -218,7 +215,12 @@ async function showEditor(path: string) {
 	let revisionCount: number | null = null;
 
 	if (res.ok) {
-		const data = await res.json() as { title: string; source: string; tags: string[]; revision_count: number };
+		const data = (await res.json()) as {
+			title: string;
+			source: string;
+			tags: string[];
+			revision_count: number;
+		};
 		title = data.title;
 		source = data.source;
 		tags = data.tags;
@@ -261,7 +263,10 @@ async function showEditor(path: string) {
 		const body = {
 			title: ($("#edit-title") as HTMLInputElement).value,
 			source: ($("#edit-source") as HTMLTextAreaElement).value,
-			tags: ($("#edit-tags") as HTMLInputElement).value.split(",").map((t: string) => t.trim()).filter(Boolean),
+			tags: ($("#edit-tags") as HTMLInputElement).value
+				.split(",")
+				.map((t: string) => t.trim())
+				.filter(Boolean),
 			comment: ($("#edit-comment") as HTMLInputElement).value,
 			base_revision_number: rev !== "null" ? Number(rev) : null,
 		};
@@ -276,7 +281,7 @@ async function showEditor(path: string) {
 			setHtml(actionArea, "");
 			loadPage(p);
 		} else {
-			const err = await saveRes.json() as { error: string };
+			const err = (await saveRes.json()) as { error: string };
 			window.alert(`Save failed: ${err.error}`);
 		}
 	});
@@ -290,7 +295,7 @@ async function showEditor(path: string) {
 			body: JSON.stringify({ source: src }),
 		});
 		if (previewRes.ok) {
-			const data = await previewRes.json() as { html: string; styles: string[] };
+			const data = (await previewRes.json()) as { html: string; styles: string[] };
 			setHtml(
 				$("#edit-preview-area"),
 				`<h3>Preview</h3><div class="preview-content">${data.html}</div>`,
@@ -316,12 +321,12 @@ async function showSource(path: string) {
 		return;
 	}
 
-	const data = await res.json() as { source: string };
+	const data = (await res.json()) as { source: string };
 	setHtml(
 		actionArea,
 		`<a href="javascript:;" class="action-area-close" id="btn-close-action">Close</a>` +
-		`<h1>Page Source</h1>` +
-		`<div class="page-source"><pre>${escapeHtml(data.source)}</pre></div>`,
+			`<h1>Page Source</h1>` +
+			`<div class="page-source"><pre>${escapeHtml(data.source)}</pre></div>`,
 	);
 	$("#btn-close-action")?.addEventListener("click", () => setHtml(actionArea, ""));
 }
@@ -338,14 +343,27 @@ async function showHistory(path: string) {
 		return;
 	}
 
-	type Revision = { revisionNumber: number; title: string; comment: string; createdAt: string; createdBy: number | null };
-	const data = await res.json() as { revisions: Revision[] };
+	type Revision = {
+		revisionNumber: number;
+		title: string;
+		comment: string;
+		createdAt: string;
+		createdBy: number | null;
+	};
+	const data = (await res.json()) as { revisions: Revision[] };
 	const sorted = data.revisions.sort((a, b) => b.revisionNumber - a.revisionNumber);
 
 	const rows = sorted
 		.map((r) => {
-			const date = r.createdAt ? new Date(r.createdAt + "Z").toLocaleDateString("ja-JP", { year: "numeric", month: "short", day: "numeric" }) : "";
-			return `<tr id="revision-row-${r.revisionNumber}">` +
+			const date = r.createdAt
+				? new Date(r.createdAt + "Z").toLocaleDateString("ja-JP", {
+						year: "numeric",
+						month: "short",
+						day: "numeric",
+					})
+				: "";
+			return (
+				`<tr id="revision-row-${r.revisionNumber}">` +
 				`<td>${r.revisionNumber}.</td>` +
 				`<td style="width: 5em" class="optionstd">` +
 				`<a href="javascript:;" data-action="view-revision" data-path="${path}" data-rev="${r.revisionNumber}" title="View this version">V</a> ` +
@@ -353,20 +371,21 @@ async function showHistory(path: string) {
 				`</td>` +
 				`<td style="padding: 0 0.5em; width: 7em;">${date}</td>` +
 				`<td style="font-size: 90%">${escapeHtml(r.comment ?? "")}</td>` +
-				`</tr>`;
+				`</tr>`
+			);
 		})
 		.join("");
 
 	setHtml(
 		actionArea,
 		`<a href="javascript:;" class="action-area-close" id="btn-close-action">Close</a>` +
-		`<h1>Page History</h1>` +
-		`<div id="revision-list">` +
-		`<table class="page-history"><tbody>` +
-		`<tr><td>rev.</td><td>Actions</td><td>Date</td><td>Comment</td></tr>` +
-		rows +
-		`</tbody></table>` +
-		`</div>`,
+			`<h1>Page History</h1>` +
+			`<div id="revision-list">` +
+			`<table class="page-history"><tbody>` +
+			`<tr><td>rev.</td><td>Actions</td><td>Date</td><td>Comment</td></tr>` +
+			rows +
+			`</tbody></table>` +
+			`</div>`,
 	);
 	$("#btn-close-action")?.addEventListener("click", () => setHtml(actionArea, ""));
 }
@@ -374,9 +393,12 @@ async function showHistory(path: string) {
 // --- ユーティリティ ---
 
 function escapeAttr(str: string): string {
-	return str.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+	return str
+		.replace(/&/g, "&amp;")
+		.replace(/"/g, "&quot;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;");
 }
-
 
 function escapeHtml(str: string): string {
 	const div = document.createElement("div");
@@ -460,7 +482,11 @@ async function init() {
 
 	// SSRでコンテンツが既にレンダリング済みなら、WDPRランタイム初期化とページオプション更新のみ
 	const pageContent = $("#page-content");
-	if (pageContent && pageContent.innerHTML.trim() && !pageContent.textContent?.includes("Loading")) {
+	if (
+		pageContent &&
+		pageContent.innerHTML.trim() &&
+		!pageContent.textContent?.includes("Loading")
+	) {
 		initRuntime();
 		const path = getPagePathFromUrl();
 		if (path) updatePageOptions(path, false);

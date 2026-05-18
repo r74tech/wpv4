@@ -140,9 +140,7 @@ api.put("/page/*", requireAuth, zValidator("json", savePageSchema), async (c) =>
 				.where(eq(pages.id, page.id)),
 			// タグ: 全削除→再挿入
 			db.delete(pageTags).where(eq(pageTags.pageId, page.id)),
-			...body.tags.map((tag) =>
-				db.insert(pageTags).values({ pageId: page.id, tag }),
-			),
+			...body.tags.map((tag) => db.insert(pageTags).values({ pageId: page.id, tag })),
 		]);
 	} else {
 		// 新規作成
@@ -170,13 +168,11 @@ api.put("/page/*", requireAuth, zValidator("json", savePageSchema), async (c) =>
 				comment: body.comment,
 				createdBy: user.id,
 			}),
-			...body.tags.map((tag) =>
-				db.insert(pageTags).values({ pageId, tag }),
-			),
+			...body.tags.map((tag) => db.insert(pageTags).values({ pageId, tag })),
 		];
 
 		if (batchOps.length > 0) {
-			await db.batch(batchOps as [typeof batchOps[0], ...typeof batchOps]);
+			await db.batch(batchOps as [(typeof batchOps)[0], ...typeof batchOps]);
 		}
 	}
 

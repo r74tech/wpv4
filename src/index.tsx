@@ -34,7 +34,11 @@ app.get("*", async (c) => {
 	// ページ存在Setとページデータを並列取得
 	const [existingPages, pageRow] = await Promise.all([
 		getExistingPageSet(c.env.DB),
-		db.select().from(pages).where(and(eq(pages.category, category), eq(pages.unixName, unixName))).limit(1),
+		db
+			.select()
+			.from(pages)
+			.where(and(eq(pages.category, category), eq(pages.unixName, unixName)))
+			.limit(1),
 	]);
 
 	// sidebar・topbar をSet付きで並列レンダリング

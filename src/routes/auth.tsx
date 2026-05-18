@@ -7,7 +7,12 @@ import { generatePkce, generateState, buildAuthorizeUrl, exchangeCode } from "@/
 import { hashToken } from "@/middleware/session";
 import { verifyCsrf } from "@/middleware/csrf";
 import { storeChallenge, consumeChallenge } from "@/services/challenge-store";
-import { sessionCookieName, sessionCookieOptions, oauthCookieName, stateCookieOptions } from "@/lib/cookie";
+import {
+	sessionCookieName,
+	sessionCookieOptions,
+	oauthCookieName,
+	stateCookieOptions,
+} from "@/lib/cookie";
 import { authRenderer } from "@/auth-renderer";
 import { LoginPage } from "@/pages/auth/LoginPage";
 import type { AppEnv } from "@/types/env";
@@ -30,11 +35,15 @@ auth.get("/oauth", async (c) => {
 	const state = generateState();
 
 	// サーバーサイドにOAuthステートを保存
-	const stateKey = await storeChallenge(c.env.DB, {
-		state,
-		codeVerifier,
-		type: "oauth",
-	}, 600);
+	const stateKey = await storeChallenge(
+		c.env.DB,
+		{
+			state,
+			codeVerifier,
+			type: "oauth",
+		},
+		600,
+	);
 
 	setCookie(c, oauthCookieName(c.req.url), stateKey, stateCookieOptions(c.req.url, 600));
 

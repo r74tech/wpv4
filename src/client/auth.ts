@@ -25,7 +25,7 @@ async function registerPasskey() {
 		});
 
 		if (!verifyRes.ok) {
-			const err = await verifyRes.json() as { error: string };
+			const err = (await verifyRes.json()) as { error: string };
 			throw new Error(err.error);
 		}
 
@@ -94,7 +94,7 @@ async function loginWithPasskey() {
 		});
 
 		if (!verifyRes.ok) {
-			const err = await verifyRes.json() as { error: string };
+			const err = (await verifyRes.json()) as { error: string };
 			throw new Error(err.error);
 		}
 
