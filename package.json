@@ -4,7 +4,7 @@
 	"scripts": {
 		"dev": "vite",
 		"dev:wrangler": "wrangler dev",
-		"build": "vite build && vite build --mode client",
+		"build": "vite build --mode client && vite build",
 		"deploy": "bun run build && wrangler deploy --minify",
 		"lint": "oxlint src/",
 		"format": "oxfmt src/",

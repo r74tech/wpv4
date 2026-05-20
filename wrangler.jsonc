@@ -4,6 +4,12 @@
 	"main": "src/index.tsx",
 	"compatibility_date": "2026-03-16",
 	"compatibility_flags": ["nodejs_compat"],
+	"observability": {
+		"logs": {
+			"enabled": true,
+			"invocation_logs": true
+		}
+	},
 	// ローカル開発用のデフォルト設定（wrangler dev で使用）
 	// ローカル開発用 D1（wrangler dev は --local で .wrangler/state を読むため
 	// database_id は実体識別用、staging のものを流用しておく）

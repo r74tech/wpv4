@@ -4,6 +4,12 @@
 	"main": "src/index.ts",
 	"compatibility_date": "2026-03-16",
 	"compatibility_flags": ["nodejs_compat"],
+	"observability": {
+		"logs": {
+			"enabled": true,
+			"invocation_logs": true
+		}
+	},
 	"r2_buckets": [
 		{
 			"binding": "FILES",

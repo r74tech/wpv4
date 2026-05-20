@@ -1,3 +1,8 @@
+// manifest.json は client build 後に dist/.vite/ に生成される。
+// build 順を `vite build --mode client && vite build` にすることで SSR build 時に
+// 解決済みとなり、SSR バンドルにインライン化される（Workers 上で require/import.meta が不要）
+import manifest from "../dist/.vite/manifest.json";
+
 type ManifestEntry = {
 	file: string;
 	src?: string;
@@ -6,24 +11,9 @@ type ManifestEntry = {
 
 type Manifest = Record<string, ManifestEntry>;
 
-let manifest: Manifest | null = null;
-
-function loadManifest(): Manifest {
-	if (manifest) return manifest;
-	try {
-		// @ts-expect-error manifest.json only exists after client build
-		manifest = require("../dist/.vite/manifest.json") as Manifest;
-	} catch {
-		manifest = {};
-	}
-	return manifest!;
-}
+const m = manifest as Manifest;
 
 export function getClientScriptPath(entry: string): string {
-	if (!import.meta.env.PROD) {
-		return `/src/client/${entry}.ts`;
-	}
-	const m = loadManifest();
 	const key = `src/client/${entry}.ts`;
 	const e = m[key];
 	if (!e) return `/static/${entry}.js`;
