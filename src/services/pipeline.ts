@@ -66,6 +66,57 @@ export async function getExistingPageSet(
 }
 
 /**
+ * SHA-256 を hex で返す。html-block の content-addressed key に使用。
+ */
+async function sha256Hex(input: string): Promise<string> {
+	const data = new TextEncoder().encode(input);
+	const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+	return bytesToHex(new Uint8Array(hashBuffer));
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+	let hex = "";
+	for (let i = 0; i < bytes.length; i++) {
+		hex += bytes[i].toString(16).padStart(2, "0");
+	}
+	return hex;
+}
+
+/**
+ * HMAC-SHA256 を hex で返す。private html-block の ukey 生成に使用。
+ */
+async function hmacSha256Hex(secret: string, message: string): Promise<string> {
+	const keyData = new TextEncoder().encode(secret);
+	const key = await crypto.subtle.importKey(
+		"raw",
+		keyData,
+		{ name: "HMAC", hash: "SHA-256" },
+		false,
+		["sign"],
+	);
+	const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
+	return bytesToHex(new Uint8Array(sig));
+}
+
+/**
+ * private html-block 用の ukey 付き URL を生成する。
+ * パスは share と同じ `/local--html/<page>/<hash>` で、ukey + exp の有無で
+ * files-worker 側が public / private を分岐する（Wikidot互換）。
+ * ukey = HMAC-SHA256(FILES_URL_SECRET, `${page}:${hash}:${exp}`)
+ * exp は Unix秒（1時間後）
+ */
+async function buildPrivateHtmlBlockUrl(
+	filesDomain: string,
+	page: string,
+	hash: string,
+	secret: string,
+): Promise<string> {
+	const exp = Math.floor(Date.now() / 1000) + 3600;
+	const ukey = await hmacSha256Hex(secret, `${page}:${hash}:${exp}`);
+	return `${filesDomain}/local--html/${page}/${hash}?ukey=${ukey}&exp=${exp}`;
+}
+
+/**
  * pageExists callback に渡される page 文字列を、DB保存形式と整合する形に正規化する。
  * share/private のとき unix_name 部分は小文字統一されているため、入力も小文字化する。
  */
@@ -91,6 +142,10 @@ export async function renderWikitext(
 		tags?: string[];
 		viewerId?: number | null;
 		existingPages?: Set<string>;
+		// true のときだけ html-block を R2 に PUT する。
+		// save 系 (POST /api/page/new, PUT /api/page/*) のみ true。
+		// preview / GET / nav の read 系では false（URL 生成のみ）
+		persistHtmlBlocks?: boolean;
 	},
 ): Promise<RenderResult> {
 	const db = drizzle(env.DB);
@@ -164,6 +219,38 @@ export async function renderWikitext(
 
 	const existingPages = options.existingPages ?? (await getExistingPageSet(env.DB, viewerId));
 
+	// html-block を R2 に content-addressed で保存し、iframe URL を返す resolver を構築
+	// R2 key / URL パスは Wikidot 互換で `local--html/<page>/<hash>` 統一
+	// - share / system: ukey なし（CDN cache 可、誰でも閲覧）
+	// - private: ukey(HMAC) + exp 付き URL（files-worker が検証、非キャッシュ）
+	const isPrivatePage = isPrivate(options.category);
+	const htmlBlocks = resolvedAst["html-blocks"] ?? [];
+	const filesDomain = env.FILES_DOMAIN.replace(/\/$/, "");
+
+	// hash は常に計算（URL生成に必要）、R2 PUT は persistHtmlBlocks=true のときだけ
+	const htmlBlockHashes = await Promise.all(
+		htmlBlocks.map(async (content) => {
+			const hash = await sha256Hex(content);
+			if (options.persistHtmlBlocks) {
+				await env.R2.put(`local--html/${options.pageName}/${hash}`, content, {
+					httpMetadata: { contentType: "text/html; charset=utf-8" },
+				});
+			}
+			return hash;
+		}),
+	);
+
+	const htmlBlockUrls = await Promise.all(
+		htmlBlockHashes.map(async (hash) => {
+			if (!hash) return "";
+			if (isPrivatePage) {
+				return buildPrivateHtmlBlockUrl(filesDomain, options.pageName, hash, env.FILES_URL_SECRET);
+			}
+			return `${filesDomain}/local--html/${options.pageName}/${hash}`;
+		}),
+	);
+	const htmlBlockUrl = (index: number): string => htmlBlockUrls[index] ?? "";
+
 	const renderOptions: RenderOptions = {
 		page: {
 			pageName: options.pageName,
@@ -171,6 +258,7 @@ export async function renderWikitext(
 			tags: options.tags ?? [],
 			pageExists: (name: string) => existingPages.has(normalizePageKey(name)),
 		},
+		resolvers: { htmlBlockUrl },
 	};
 
 	const html = renderToHtml(resolvedAst, renderOptions);

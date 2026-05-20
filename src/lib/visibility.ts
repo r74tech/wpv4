@@ -91,6 +91,12 @@ export function canManagePage(
 }
 
 /**
+ * revisions.visibility カラム用の正規化。'share' | 'private' の2値に絞る。 */
+export function toRevisionVisibility(category: string): "share" | "private" {
+	return category === "private" ? "private" : "share";
+}
+
+/**
  * 閲覧権限: privateは作成者のみ、share/systemは誰でも、未知カテゴリはdeny。
  */
 export function canViewPage(

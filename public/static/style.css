@@ -1,6 +1,16 @@
 @import url(https://d3g0gp89917ko0.cloudfront.net/v--7690939296dc/common--theme/base/css/style.css);
-@import url(https://scp-jp.github.io/files/theme/sigma-9/sigma-9.min.css);
+@import url(https://scp-jp.github.io/sigma/css/sigma.css);
 
 #header {
-  background-image: unset;
+	background-image: unset;
+}
+
+#header h1 a::before,
+#header h1 a::after {
+	content: unset;
+}
+
+#header h1 a span {
+	font-size: unset;
+	letter-spacing: unset;
 }

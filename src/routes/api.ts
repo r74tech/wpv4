@@ -19,6 +19,7 @@ import {
 	isValidPageIdentifier,
 	isValidUlid,
 	normalizeUlid,
+	toRevisionVisibility,
 } from "@/lib/visibility";
 import { findReferencingPages } from "@/services/visibility-check";
 import type { AppEnv } from "@/types/env";
@@ -164,6 +165,7 @@ api.post("/page/new", requireAuth, zValidator("json", newPageSchema), async (c) 
 			title: body.title,
 			source: body.source,
 			comment: body.comment,
+			visibility: body.type,
 			createdBy: user.id,
 		}),
 		...uniqueTags.map((tag) => db.insert(pageTags).values({ pageId, tag })),
@@ -178,6 +180,7 @@ api.post("/page/new", requireAuth, zValidator("json", newPageSchema), async (c) 
 		category: body.type,
 		tags: body.tags,
 		viewerId: user.id,
+		persistHtmlBlocks: true,
 	});
 
 	return c.json({
@@ -258,6 +261,7 @@ api.put("/page/*", requireAuth, zValidator("json", updatePageSchema), async (c) 
 			title: body.title,
 			source: body.source,
 			comment: body.comment,
+			visibility: toRevisionVisibility(page.category),
 			createdBy: user.id,
 		}),
 		db.delete(pageTags).where(eq(pageTags.pageId, page.id)),
@@ -269,6 +273,7 @@ api.put("/page/*", requireAuth, zValidator("json", updatePageSchema), async (c) 
 		category,
 		tags: body.tags,
 		viewerId: user.id,
+		persistHtmlBlocks: true,
 	});
 
 	return c.json({
@@ -340,11 +345,17 @@ api.post("/page/:ulid/visibility", requireAuth, zValidator("json", visibilitySch
 			updatedBy: user.id,
 			updatedAt: new Date().toISOString(),
 		})
-		.where(and(eq(pages.id, page[0].id), eq(pages.category, page[0].category)))
+		.where(
+			and(
+				eq(pages.id, page[0].id),
+				eq(pages.category, page[0].category),
+				// 並行編集（PUT）で revisionCount が進んでいたら 0 件にして 409 を返す（codex 指摘 #3）
+				eq(pages.revisionCount, page[0].revisionCount ?? 0),
+			),
+		)
 		.returning({ id: pages.id });
 
 	if (updateResult.length === 0) {
-		// 並行トグルにより既に category が変わっていた
 		return c.json({ error: "Conflict: page was modified concurrently" }, 409);
 	}
 
@@ -354,6 +365,8 @@ api.post("/page/:ulid/visibility", requireAuth, zValidator("json", visibilitySch
 		title: page[0].title,
 		source: page[0].source,
 		comment,
+		// トグル後の新しい visibility をスナップショット
+		visibility: body.target,
 		createdBy: user.id,
 	});
 
@@ -413,11 +426,16 @@ api.get("/page-history/*", async (c) => {
 		return c.json({ error: "Forbidden" }, 403);
 	}
 
-	const revs = await db
+	const allRevs = await db
 		.select()
 		.from(revisions)
 		.where(eq(revisions.pageId, page[0].id))
 		.orderBy(revisions.revisionNumber);
+
+	// 当時 private だったリビジョンは作成者本人のみ閲覧可能（codex 指摘 #1）
+	// page.createdBy で判定（page所有者なら過去の private リビジョンも見れる）
+	const isOwner = viewerId !== null && page[0].createdBy === viewerId;
+	const revs = isOwner ? allRevs : allRevs.filter((r) => r.visibility !== "private");
 
 	return c.json({ revisions: revs });
 });
@@ -455,6 +473,7 @@ api.get("/page-revision/*/r/:num", async (c) => {
 			title: revisions.title,
 			source: revisions.source,
 			comment: revisions.comment,
+			visibility: revisions.visibility,
 			createdBy: revisions.createdBy,
 			createdAt: revisions.createdAt,
 			createdByName: users.name,
@@ -467,6 +486,14 @@ api.get("/page-revision/*/r/:num", async (c) => {
 
 	if (!rev[0]) {
 		return c.json({ error: "Revision not found" }, 404);
+	}
+
+	// 当時 private だったリビジョンは作成者本人のみ閲覧可能（codex 指摘 #1）
+	if (rev[0].visibility === "private") {
+		const isOwner = viewerId !== null && page[0].createdBy === viewerId;
+		if (!isOwner) {
+			return c.json({ error: "Forbidden" }, 403);
+		}
 	}
 
 	return c.json({

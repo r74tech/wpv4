@@ -1,0 +1,53 @@
+{
+	"$schema": "../node_modules/wrangler/config-schema.json",
+	"name": "wpfiles-dev",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-03-16",
+	"compatibility_flags": ["nodejs_compat"],
+	"r2_buckets": [
+		{
+			"binding": "FILES",
+			"bucket_name": "wpv4-html-blocks"
+		}
+	],
+	"vars": {
+		"ALLOWED_ORIGIN": "http://localhost:5173",
+		"HTML_BLOCK_CSS_URL": "http://localhost:5173/common--theme/base/css/html-block.css"
+	},
+	"dev": {
+		"port": 8788,
+		"persist_to": "../.wrangler/state"
+	},
+	"env": {
+		// staging: develop ブランチから自動デプロイ
+		"staging": {
+			"name": "wpfiles-staging",
+			"r2_buckets": [
+				{
+					"binding": "FILES",
+					"bucket_name": "wpv4-html-blocks-staging"
+				}
+			],
+			"vars": {
+				"ALLOWED_ORIGIN": "https://wpv4-staging.r74.workers.dev",
+				"HTML_BLOCK_CSS_URL": "https://wpv4-staging.r74.workers.dev/common--theme/base/css/html-block.css"
+			}
+		},
+		// production: main ブランチから自動デプロイ
+		// ドメイン: wpfiles.r74.workers.dev (Workers default subdomain)
+		"production": {
+			"name": "wpfiles",
+			"workers_dev": true,
+			"r2_buckets": [
+				{
+					"binding": "FILES",
+					"bucket_name": "wpv4-html-blocks-prd"
+				}
+			],
+			"vars": {
+				"ALLOWED_ORIGIN": "https://wp.r74.tech",
+				"HTML_BLOCK_CSS_URL": "https://wp.r74.tech/common--theme/base/css/html-block.css"
+			}
+		}
+	}
+}

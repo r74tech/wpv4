@@ -58,6 +58,11 @@ export const revisions = sqliteTable(
 		title: text("title").notNull().default(""),
 		source: text("source").notNull().default(""),
 		comment: text("comment").default(""),
+		// このリビジョン作成時点のページ公開状態（'share' | 'private'）
+		// systemページ由来は 'share' 相当
+		visibility: text("visibility", { enum: ["share", "private"] })
+			.notNull()
+			.default("share"),
 		createdBy: integer("created_by").references(() => users.id),
 		createdAt: text("created_at").default(now),
 	},

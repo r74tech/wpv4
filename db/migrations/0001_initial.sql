@@ -41,6 +41,10 @@ CREATE TABLE IF NOT EXISTS revisions (
     title TEXT NOT NULL DEFAULT '',
     source TEXT NOT NULL DEFAULT '',
     comment TEXT DEFAULT '',
+    -- このリビジョン作成時点のページ公開状態（'share' | 'private'）
+    -- システムページ由来のリビジョンは 'share' 相当として保存
+    -- private→share トグル後も、当時 private だったリビジョンを作成者以外に漏らさないため
+    visibility TEXT NOT NULL DEFAULT 'share' CHECK(visibility IN ('share','private')),
     created_by INTEGER REFERENCES users(id),
     created_at TEXT DEFAULT (datetime('now')),
     UNIQUE(page_id, revision_number)

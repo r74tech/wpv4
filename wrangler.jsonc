@@ -1,14 +1,17 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "wpv4",
+	"name": "wpv4-dev",
 	"main": "src/index.tsx",
 	"compatibility_date": "2026-03-16",
 	"compatibility_flags": ["nodejs_compat"],
+	// ローカル開発用のデフォルト設定（wrangler dev で使用）
+	// ローカル開発用 D1（wrangler dev は --local で .wrangler/state を読むため
+	// database_id は実体識別用、staging のものを流用しておく）
 	"d1_databases": [
 		{
 			"binding": "DB",
 			"database_name": "wpv4-db",
-			"database_id": "",
+			"database_id": "10a1d195-723b-4e1c-83ce-59c48a2de595",
 			"migrations_dir": "db/migrations"
 		}
 	],
@@ -19,12 +22,73 @@
 		}
 	],
 	"vars": {
-		// "OAUTH_PROVIDER_URL": "http://localhost:3939",
 		"OAUTH_PROVIDER_URL": "https://manage.scp-jp.com",
 		"CLIENT_ID": "eeb066eefa0e40ae229600a4df7eab34",
 		"FILES_DOMAIN": "http://localhost:8788"
 	},
 	"assets": {
 		"directory": "public"
+	},
+	"env": {
+		// staging: develop ブランチから自動デプロイ
+		// デフォルトドメイン: wpv4-staging.<account>.workers.dev
+		"staging": {
+			"name": "wpv4-staging",
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "wpv4-db-staging",
+					"database_id": "10a1d195-723b-4e1c-83ce-59c48a2de595",
+					"migrations_dir": "db/migrations"
+				}
+			],
+			"r2_buckets": [
+				{
+					"binding": "R2",
+					"bucket_name": "wpv4-html-blocks-staging"
+				}
+			],
+			"vars": {
+				"OAUTH_PROVIDER_URL": "https://manage.scp-jp.com",
+				"CLIENT_ID": "eeb066eefa0e40ae229600a4df7eab34",
+				"FILES_DOMAIN": "https://wpfiles-staging.r74.workers.dev"
+			},
+			"assets": {
+				"directory": "public"
+			}
+		},
+		// production: main ブランチから自動デプロイ
+		// カスタムドメイン: wp.r74.tech（Cloudflare ダッシュボードでバインド）
+		"production": {
+			"name": "wpv4-prd",
+			"routes": [
+				{
+					"pattern": "wp.r74.tech",
+					"custom_domain": true
+				}
+			],
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "wpv4-db-prd",
+					"database_id": "139072e2-5480-433e-a77b-6f29a34666dc",
+					"migrations_dir": "db/migrations"
+				}
+			],
+			"r2_buckets": [
+				{
+					"binding": "R2",
+					"bucket_name": "wpv4-html-blocks-prd"
+				}
+			],
+			"vars": {
+				"OAUTH_PROVIDER_URL": "https://manage.scp-jp.com",
+				"CLIENT_ID": "eeb066eefa0e40ae229600a4df7eab34",
+				"FILES_DOMAIN": "https://wpfiles.r74.workers.dev"
+			},
+			"assets": {
+				"directory": "public"
+			}
+		}
 	}
 }

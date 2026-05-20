@@ -6,6 +6,8 @@ export type Bindings = {
 	CLIENT_SECRET: string;
 	SESSION_SECRET: string;
 	FILES_DOMAIN: string;
+	// private ページの html-block URL に付与する HMAC 鍵 (files-worker と共有)
+	FILES_URL_SECRET: string;
 };
 
 export type Variables = {
