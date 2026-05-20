@@ -70,13 +70,7 @@ export const WikidotShell: FC<Props> = ({ children, sidebar, topbar, pageStyles 
 								</div>
 								<div id="content-wrap">
 									<div id="side-bar">
-										<div id="side-bar-actions">
-											<p>
-												<a id="btn-new-page" href="javascript:;">
-													+ New Page
-												</a>
-											</p>
-										</div>
+										<div id="side-bar-actions" />
 										<div>{raw(sidebar?.html ?? "")}</div>
 									</div>
 									<div id="main-content">

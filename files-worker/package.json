@@ -1,0 +1,18 @@
+{
+	"name": "wpv4-files-worker",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "wrangler dev --persist-to ../.wrangler/state",
+		"deploy": "wrangler deploy",
+		"typecheck": "bunx tsc --noEmit"
+	},
+	"dependencies": {
+		"@wdprlib/runtime": "^1.0.2"
+	},
+	"devDependencies": {
+		"@cloudflare/workers-types": "^4.20260520.1",
+		"wrangler": "^4.0.0"
+	}
+}

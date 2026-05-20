@@ -12,6 +12,7 @@ import { user } from "./routes/user";
 import { passkeyApi } from "./routes/passkey-api";
 import { WikidotShell } from "./components/WikidotShell";
 import { resolveSession } from "./middleware/session";
+import { canViewPage, isShare, isPrivate, normalizeUlid } from "./lib/visibility";
 import type { AppEnv } from "./types/env";
 
 const app = new Hono<AppEnv>();
@@ -24,16 +25,122 @@ app.route("/api/passkeys", passkeyApi);
 app.route("/auth", auth);
 app.route("/user", user);
 
+// /new: 新規ページ作成画面（app.get("*") より前に登録）
+app.get("/new", async (c) => {
+	const type = c.req.query("type");
+	if (type !== "share" && type !== "private") {
+		return c.text("Invalid type. Expected 'share' or 'private'.", 400);
+	}
+	const viewer = c.get("user");
+	if (!viewer) {
+		return c.redirect("/auth/login", 302);
+	}
+
+	const [sidebar, topbar] = await Promise.all([
+		renderNav(c.env, "side", viewer.id),
+		renderNav(c.env, "top", viewer.id),
+	]);
+
+	// Wikidot のページ編集画面構造を踏襲（既存CSSを活かすため）
+	return c.html(
+		<WikidotShell sidebar={sidebar} topbar={topbar}>
+			<div id="page-title" />
+			<div id="page-content" />
+			<div id="action-area" style="display: block;" data-new-type={type}>
+				<h1>Create a new {type} page</h1>
+				<div>
+					<form id="edit-page-form" onsubmit="return false;">
+						<table class="form" style="margin: 0.5em auto 1em 0">
+							<tbody>
+								<tr>
+									<td>Title of the page:</td>
+									<td>
+										<input
+											class="text"
+											id="edit-page-title"
+											name="title"
+											type="text"
+											value=""
+											size={35}
+											maxlength={128}
+											style="font-weight: bold; font-size: 130%;"
+										/>
+									</td>
+								</tr>
+							</tbody>
+						</table>
+						<div>
+							<textarea
+								id="edit-page-textarea"
+								name="source"
+								rows={20}
+								cols={60}
+								style="width: 95%;"
+							/>
+						</div>
+						<div class="edit-help-34">
+							Help:{" "}
+							<a href="http://www.wikidot.com/doc:quick-reference" target="_blank" rel="noopener">
+								wiki text quick reference
+							</a>
+						</div>
+						<table class="edit-page-bottomtable" style="padding: 2px 0; border: none;">
+							<tbody>
+								<tr>
+									<td style="border: none; padding: 0 5px;">
+										<div>
+											Tags (comma separated):
+											<br />
+											<input type="text" id="edit-page-tags" name="tags" value="" />
+										</div>
+										<div style="margin-top: 0.5em;">
+											Short description of changes:
+											<br />
+											<textarea id="edit-page-comments" name="comments" rows={2} cols={40} />
+										</div>
+									</td>
+								</tr>
+							</tbody>
+						</table>
+						<div class="buttons alignleft">
+							<a href="/" class="btn btn-danger" id="edit-cancel-button">
+								Cancel
+							</a>
+							<input
+								type="button"
+								id="edit-preview-button"
+								class="btn btn-default"
+								value="Preview"
+							/>
+							<input
+								type="button"
+								id="edit-save-button"
+								class="btn btn-primary"
+								value="Save"
+								data-type={type}
+							/>
+						</div>
+					</form>
+				</div>
+			</div>
+		</WikidotShell>,
+	);
+});
+
 app.get("*", async (c) => {
 	const rawPath = c.req.path.slice(1);
 	const pagePath = rawPath || "main";
-	const [category, unixName] = parsePagePath(pagePath);
+	const [category, unixNameRaw] = parsePagePath(pagePath);
+	// share/private の unix_name は小文字統一（WDPR renderer の toLowerCase() と整合）
+	const unixName =
+		isShare(category) || isPrivate(category) ? normalizeUlid(unixNameRaw) : unixNameRaw;
 
+	const viewerId = c.get("user")?.id ?? null;
 	const db = drizzle(c.env.DB);
 
 	// ページ存在Setとページデータを並列取得
 	const [existingPages, pageRow] = await Promise.all([
-		getExistingPageSet(c.env.DB),
+		getExistingPageSet(c.env.DB, viewerId),
 		db
 			.select()
 			.from(pages)
@@ -43,8 +150,8 @@ app.get("*", async (c) => {
 
 	// sidebar・topbar をSet付きで並列レンダリング
 	const [sidebar, topbar] = await Promise.all([
-		renderNav(c.env, "side", existingPages),
-		renderNav(c.env, "top", existingPages),
+		renderNav(c.env, "side", viewerId, existingPages),
+		renderNav(c.env, "top", viewerId, existingPages),
 	]);
 
 	const page = pageRow[0];
@@ -57,6 +164,21 @@ app.get("*", async (c) => {
 					<p>Page not found.</p>
 				</div>
 			</WikidotShell>,
+			404,
+		);
+	}
+
+	if (!canViewPage(page, viewerId)) {
+		return c.html(
+			<WikidotShell sidebar={sidebar} topbar={topbar}>
+				<div id="page-title">
+					<span>Forbidden</span>
+				</div>
+				<div id="page-content">
+					<p>This page is private.</p>
+				</div>
+			</WikidotShell>,
+			403,
 		);
 	}
 
@@ -69,6 +191,7 @@ app.get("*", async (c) => {
 		pageName: unixName,
 		category,
 		tags: tags.map((t) => t.tag),
+		viewerId,
 		existingPages,
 	});
 

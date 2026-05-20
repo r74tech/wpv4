@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { drizzle } from "drizzle-orm/d1";
-import { eq, desc, like, sql, and as drizzleAnd } from "drizzle-orm";
+import { eq, desc, like, sql, and as drizzleAnd, or as drizzleOr } from "drizzle-orm";
 import { users, revisions, pages, passkeys } from "@/db/schema";
 import { requireAuth } from "@/middleware/session";
 import { formatPagePath } from "@/services/pipeline";
@@ -51,11 +51,17 @@ user.get("/activities", async (c) => {
 	const search = c.req.query("q") ?? "";
 	const offset = (page - 1) * perPage;
 
-	const conditions = [eq(revisions.createdBy, currentUser.id)];
+	// 自分が編集したrevisionが対象。ただし他人がprivate化したページの情報は漏らさない:
+	// (category != 'private' OR pages.created_by = currentUser.id)
+	const privacyClause = drizzleOr(
+		sql`${pages.category} != 'private'`,
+		eq(pages.createdBy, currentUser.id),
+	);
+	const conditions = [eq(revisions.createdBy, currentUser.id), privacyClause];
 	if (search) {
 		conditions.push(like(pages.unixName, `%${search}%`));
 	}
-	const whereClause = conditions.length === 1 ? conditions[0] : drizzleAnd(...conditions);
+	const whereClause = drizzleAnd(...conditions);
 
 	const countResult = await db
 		.select({ count: sql<number>`count(*)` })
