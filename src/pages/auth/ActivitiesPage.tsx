@@ -45,14 +45,18 @@ export const ActivitiesPage: FC<Props> = ({ revisions, pagination, search }) => 
 					placeholder="Search by page name..."
 					style="flex:1;padding:0.5rem 0.75rem;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:0.875rem"
 				/>
-				<button type="submit" class="btn">Search</button>
-				{search && <a href={baseUrl} class="btn">Clear</a>}
+				<button type="submit" class="btn">
+					Search
+				</button>
+				{search && (
+					<a href={baseUrl} class="btn">
+						Clear
+					</a>
+				)}
 			</form>
 
 			{revisions.length === 0 ? (
-				<div class="empty-state">
-					{search ? `No results for "${search}"` : "No activities yet"}
-				</div>
+				<div class="empty-state">{search ? `No results for "${search}"` : "No activities yet"}</div>
 			) : (
 				<>
 					<table class="activity-table">
@@ -84,17 +88,25 @@ export const ActivitiesPage: FC<Props> = ({ revisions, pagination, search }) => 
 						<span>{totalCount} total</span>
 						<div style="display:flex;gap:0.5rem;align-items:center">
 							{page > 1 ? (
-								<a href={pageLink(page - 1)} class="btn btn-sm">&larr; Prev</a>
+								<a href={pageLink(page - 1)} class="btn btn-sm">
+									&larr; Prev
+								</a>
 							) : (
-								<span class="btn btn-sm" style="opacity:0.3;pointer-events:none">&larr; Prev</span>
+								<span class="btn btn-sm" style="opacity:0.3;pointer-events:none">
+									&larr; Prev
+								</span>
 							)}
 							<span>
 								{page} / {totalPages}
 							</span>
 							{page < totalPages ? (
-								<a href={pageLink(page + 1)} class="btn btn-sm">Next &rarr;</a>
+								<a href={pageLink(page + 1)} class="btn btn-sm">
+									Next &rarr;
+								</a>
 							) : (
-								<span class="btn btn-sm" style="opacity:0.3;pointer-events:none">Next &rarr;</span>
+								<span class="btn btn-sm" style="opacity:0.3;pointer-events:none">
+									Next &rarr;
+								</span>
 							)}
 						</div>
 					</div>

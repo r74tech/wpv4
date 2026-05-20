@@ -62,9 +62,13 @@ export async function exchangeCode(
 	redirectUri: string,
 	codeVerifier: string,
 ): Promise<TokenResponse> {
+	const origin = new URL(redirectUri).origin;
 	const res = await fetch(`${env.OAUTH_PROVIDER_URL}/api/oauth/wikidot/token`, {
 		method: "POST",
-		headers: { "Content-Type": "application/json" },
+		headers: {
+			"Content-Type": "application/json",
+			Origin: origin,
+		},
 		body: JSON.stringify({
 			grant_type: "authorization_code",
 			code,

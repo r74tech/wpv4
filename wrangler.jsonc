@@ -19,7 +19,8 @@
 		}
 	],
 	"vars": {
-		"OAUTH_PROVIDER_URL": "http://localhost:3939",
+		// "OAUTH_PROVIDER_URL": "http://localhost:3939",
+		"OAUTH_PROVIDER_URL": "https://manage.scp-jp.com",
 		"CLIENT_ID": "eeb066eefa0e40ae229600a4df7eab34",
 		"FILES_DOMAIN": "http://localhost:8788"
 	},

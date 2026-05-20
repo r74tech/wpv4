@@ -8,6 +8,7 @@ import type { RenderResult } from "@/services/pipeline";
 export async function renderNav(
 	env: Bindings,
 	name: string,
+	existingPages?: Set<string>,
 ): Promise<RenderResult | null> {
 	const db = drizzle(env.DB);
 	const page = await db
@@ -21,5 +22,6 @@ export async function renderNav(
 	return renderWikitext(page[0].source, env, {
 		pageName: name,
 		category: "nav",
+		existingPages,
 	});
 }

@@ -9,16 +9,18 @@ import {
 	generateAuthenticationOptions,
 	verifyAuthenticationResponse,
 } from "@simplewebauthn/server";
-import type {
-	RegistrationResponseJSON,
-	AuthenticationResponseJSON,
-} from "@simplewebauthn/server";
+import type { RegistrationResponseJSON, AuthenticationResponseJSON } from "@simplewebauthn/server";
 import { passkeys, users, sessions } from "@/db/schema";
 import { requireAuth, hashToken } from "@/middleware/session";
 import { verifyCsrf } from "@/middleware/csrf";
 import { storeChallenge, consumeChallenge, cleanupExpiredState } from "@/services/challenge-store";
 import { getCookie, setCookie } from "hono/cookie";
-import { passkeyCookieName, sessionCookieName, stateCookieOptions, sessionCookieOptions } from "@/lib/cookie";
+import {
+	passkeyCookieName,
+	sessionCookieName,
+	stateCookieOptions,
+	sessionCookieOptions,
+} from "@/lib/cookie";
 import type { AppEnv } from "@/types/env";
 
 const RP_NAME = "Wikitext Previewer v4";
@@ -76,7 +78,9 @@ passkeyApi.get("/register/options", requireAuth, async (c) => {
 	const options = await generateRegistrationOptions({
 		rpName: RP_NAME,
 		rpID: getRpId(c.req.url),
-		userID: new Uint8Array(new TextEncoder().encode(String(user.id)).buffer) as Uint8Array<ArrayBuffer>,
+		userID: new Uint8Array(
+			new TextEncoder().encode(String(user.id)).buffer,
+		) as Uint8Array<ArrayBuffer>,
 		userName: user.unixName,
 		userDisplayName: user.name,
 		excludeCredentials: existing.map((p) => ({
@@ -163,9 +167,7 @@ passkeyApi.delete("/:id", requireAuth, async (c) => {
 	}
 	const db = drizzle(c.env.DB);
 
-	await db
-		.delete(passkeys)
-		.where(and(eq(passkeys.id, id), eq(passkeys.userId, user.id)));
+	await db.delete(passkeys).where(and(eq(passkeys.id, id), eq(passkeys.userId, user.id)));
 
 	return c.json({ ok: true });
 });

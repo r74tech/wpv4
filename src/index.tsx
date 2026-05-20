@@ -4,7 +4,7 @@ import { cors } from "hono/cors";
 import { drizzle } from "drizzle-orm/d1";
 import { eq, and } from "drizzle-orm";
 import { pages, pageTags } from "./db/schema";
-import { renderWikitext, parsePagePath } from "./services/pipeline";
+import { renderWikitext, parsePagePath, getExistingPageSet } from "./services/pipeline";
 import { renderNav } from "./services/nav";
 import { api } from "./routes/api";
 import { auth } from "./routes/auth";
@@ -26,16 +26,25 @@ app.route("/user", user);
 
 app.get("*", async (c) => {
 	const rawPath = c.req.path.slice(1);
-	const pagePath = rawPath || "main:start";
+	const pagePath = rawPath || "main";
 	const [category, unixName] = parsePagePath(pagePath);
 
 	const db = drizzle(c.env.DB);
 
-	// ページ・sidebar・topbar を並列取得
-	const [pageRow, sidebar, topbar] = await Promise.all([
-		db.select().from(pages).where(and(eq(pages.category, category), eq(pages.unixName, unixName))).limit(1),
-		renderNav(c.env, "side"),
-		renderNav(c.env, "top"),
+	// ページ存在Setとページデータを並列取得
+	const [existingPages, pageRow] = await Promise.all([
+		getExistingPageSet(c.env.DB),
+		db
+			.select()
+			.from(pages)
+			.where(and(eq(pages.category, category), eq(pages.unixName, unixName)))
+			.limit(1),
+	]);
+
+	// sidebar・topbar をSet付きで並列レンダリング
+	const [sidebar, topbar] = await Promise.all([
+		renderNav(c.env, "side", existingPages),
+		renderNav(c.env, "top", existingPages),
 	]);
 
 	const page = pageRow[0];
@@ -60,6 +69,7 @@ app.get("*", async (c) => {
 		pageName: unixName,
 		category,
 		tags: tags.map((t) => t.tag),
+		existingPages,
 	});
 
 	return c.html(

@@ -14,7 +14,9 @@ export const authRenderer = jsxRenderer(({ children }) => {
 			<body>
 				<div class="auth-shell">
 					<header class="auth-header">
-						<a href="/" class="auth-logo">Wikitext Previewer</a>
+						<a href="/" class="auth-logo">
+							Wikitext Previewer
+						</a>
 						<nav class="auth-nav" id="auth-user-nav" />
 					</header>
 					<main class="auth-main">{children}</main>

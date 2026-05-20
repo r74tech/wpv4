@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { eq, desc, like, sql, and as drizzleAnd } from "drizzle-orm";
 import { users, revisions, pages, passkeys } from "@/db/schema";
 import { requireAuth } from "@/middleware/session";
+import { formatPagePath } from "@/services/pipeline";
 import { authRenderer } from "@/auth-renderer";
 import { SettingsPage } from "@/pages/auth/SettingsPage";
 import { ActivitiesPage } from "@/pages/auth/ActivitiesPage";
@@ -83,7 +84,7 @@ user.get("/activities", async (c) => {
 	return c.render(
 		<ActivitiesPage
 			revisions={rows.map((r) => ({
-				pagePath: `${r.category}:${r.unixName}`,
+				pagePath: formatPagePath(r.category, r.unixName),
 				revisionNumber: r.revisionNumber,
 				title: r.title,
 				comment: r.comment,
