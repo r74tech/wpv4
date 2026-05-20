@@ -3,7 +3,7 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { drizzle } from "drizzle-orm/d1";
 import { eq, and } from "drizzle-orm";
-import { pages, revisions, pageTags } from "@/db/schema";
+import { pages, revisions, pageTags, users } from "@/db/schema";
 import { renderWikitext, parsePagePath } from "@/services/pipeline";
 import { renderNav } from "@/services/nav";
 import { requireAuth } from "@/middleware/session";
@@ -328,14 +328,34 @@ api.post("/page/:ulid/visibility", requireAuth, zValidator("json", visibilitySch
 		}
 	}
 
-	await db
+	// rename(toggle) も revision として記録する
+	const newRevisionNumber = (page[0].revisionCount ?? 0) + 1;
+	const comment = `Changed visibility to ${body.target}`;
+
+	const updateResult = await db
 		.update(pages)
 		.set({
 			category: body.target,
+			revisionCount: newRevisionNumber,
 			updatedBy: user.id,
 			updatedAt: new Date().toISOString(),
 		})
-		.where(eq(pages.id, page[0].id));
+		.where(and(eq(pages.id, page[0].id), eq(pages.category, page[0].category)))
+		.returning({ id: pages.id });
+
+	if (updateResult.length === 0) {
+		// 並行トグルにより既に category が変わっていた
+		return c.json({ error: "Conflict: page was modified concurrently" }, 409);
+	}
+
+	await db.insert(revisions).values({
+		pageId: page[0].id,
+		revisionNumber: newRevisionNumber,
+		title: page[0].title,
+		source: page[0].source,
+		comment,
+		createdBy: user.id,
+	});
 
 	return c.json({
 		ok: true,
@@ -430,8 +450,18 @@ api.get("/page-revision/*/r/:num", async (c) => {
 	}
 
 	const rev = await db
-		.select()
+		.select({
+			revisionNumber: revisions.revisionNumber,
+			title: revisions.title,
+			source: revisions.source,
+			comment: revisions.comment,
+			createdBy: revisions.createdBy,
+			createdAt: revisions.createdAt,
+			createdByName: users.name,
+			createdByUnixName: users.unixName,
+		})
 		.from(revisions)
+		.leftJoin(users, eq(users.id, revisions.createdBy))
 		.where(and(eq(revisions.pageId, page[0].id), eq(revisions.revisionNumber, revNum)))
 		.limit(1);
 
@@ -445,7 +475,10 @@ api.get("/page-revision/*/r/:num", async (c) => {
 		source: rev[0].source,
 		comment: rev[0].comment,
 		created_by: rev[0].createdBy,
+		created_by_name: rev[0].createdByName,
+		created_by_unix_name: rev[0].createdByUnixName,
 		created_at: rev[0].createdAt,
+		page_path: `${page[0].category}:${page[0].unixName}`,
 	});
 });
 

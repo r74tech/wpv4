@@ -298,7 +298,6 @@ async function showEditor(path: string) {
 				<button id="btn-preview-edit">Preview</button>
 				<button id="btn-cancel-edit">Cancel</button>
 			</div>
-			<div id="edit-preview-area"></div>
 		</div>`,
 	);
 
@@ -333,9 +332,10 @@ async function showEditor(path: string) {
 		}
 	});
 
-	// Preview
+	// Preview: 結果を #page-title / #page-content に直接反映する
 	$("#btn-preview-edit")?.addEventListener("click", async () => {
 		const src = ($("#edit-source") as HTMLTextAreaElement).value;
+		const title = ($("#edit-title") as HTMLInputElement).value;
 		const previewRes = await fetch("/api/preview", {
 			method: "POST",
 			headers: { "Content-Type": "application/json", Origin: window.location.origin },
@@ -343,10 +343,10 @@ async function showEditor(path: string) {
 		});
 		if (previewRes.ok) {
 			const data = (await previewRes.json()) as { html: string; styles: string[] };
-			setHtml(
-				$("#edit-preview-area"),
-				`<h3>Preview</h3><div class="preview-content">${data.html}</div>`,
-			);
+			injectStyles(data.styles);
+			setHtml($("#page-title"), title ? `<span>${escapeHtml(title)}</span>` : "");
+			setHtml($("#page-content"), data.html);
+			initRuntime();
 		}
 	});
 
@@ -376,6 +376,107 @@ async function showSource(path: string) {
 			`<div class="page-source"><pre>${escapeHtml(data.source)}</pre></div>`,
 	);
 	$("#btn-close-action")?.addEventListener("click", () => setHtml(actionArea, ""));
+}
+
+// --- 特定リビジョン表示 ---
+
+type RevisionResponse = {
+	revision_number: number;
+	title: string;
+	source: string;
+	comment: string | null;
+	created_by: number | null;
+	created_by_name: string | null;
+	created_by_unix_name: string | null;
+	created_at: string | null;
+	page_path: string;
+};
+
+async function fetchRevision(path: string, num: number): Promise<RevisionResponse | null> {
+	const res = await fetch(`/api/page-revision/${path}/r/${num}`);
+	if (!res.ok) return null;
+	return (await res.json()) as RevisionResponse;
+}
+
+function openHistorySubarea(content: string) {
+	const sub = $("#history-subarea");
+	if (!sub) return;
+	sub.style.display = "block";
+	setHtml(
+		sub,
+		`<a href="javascript:;" class="action-area-close" id="btn-close-subarea">close</a>` + content,
+	);
+	$("#btn-close-subarea")?.addEventListener("click", () => {
+		sub.style.display = "none";
+		setHtml(sub, "");
+	});
+}
+
+async function showRevisionView(path: string, num: number) {
+	const data = await fetchRevision(path, num);
+	if (!data) {
+		openHistorySubarea("<p>Failed to load revision.</p>");
+		return;
+	}
+
+	const previewRes = await fetch("/api/preview", {
+		method: "POST",
+		headers: { "Content-Type": "application/json", Origin: window.location.origin },
+		body: JSON.stringify({ source: data.source }),
+	});
+	const rendered = previewRes.ok
+		? ((await previewRes.json()) as { html: string; styles: string[] })
+		: { html: `<pre>${escapeHtml(data.source)}</pre>`, styles: [] };
+
+	// Wikidot: View Revision は #page-content を上書き、上に #page-version-info メタを表示
+	const dateStr = data.created_at
+		? new Date(data.created_at + "Z").toLocaleString("ja-JP", {
+				year: "numeric",
+				month: "short",
+				day: "numeric",
+				hour: "2-digit",
+				minute: "2-digit",
+			})
+		: "";
+	const userDisplay = data.created_by_name
+		? `<span class="printuser">${escapeHtml(data.created_by_name)}</span>`
+		: data.created_by !== null
+			? `user #${data.created_by}`
+			: "(unknown)";
+
+	const versionInfo =
+		`<div id="page-version-info">` +
+		`<table><tbody>` +
+		`<tr><td>Revision no.:</td><td>${data.revision_number}</td></tr>` +
+		`<tr><td>Date created:</td><td>${escapeHtml(dateStr)}</td></tr>` +
+		`<tr><td>By:</td><td>${userDisplay}</td></tr>` +
+		`<tr><td>Page name:</td><td>${escapeHtml(data.page_path)}</td></tr>` +
+		(data.comment ? `<tr><td>Comment:</td><td>${escapeHtml(data.comment)}</td></tr>` : "") +
+		`</tbody></table>` +
+		`<a href="javascript:;" id="btn-close-version-info">Close this box</a>` +
+		`</div>`;
+
+	injectStyles(rendered.styles);
+	setHtml($("#page-title"), `<span>${escapeHtml(data.title)}</span>`);
+	setHtml($("#page-content"), versionInfo + rendered.html);
+	initRuntime();
+	$("#btn-close-version-info")?.addEventListener("click", () => {
+		const info = document.getElementById("page-version-info");
+		if (info) info.style.display = "none";
+	});
+}
+
+async function showRevisionSource(path: string, num: number) {
+	const data = await fetchRevision(path, num);
+	if (!data) {
+		openHistorySubarea("<p>Failed to load revision.</p>");
+		return;
+	}
+	openHistorySubarea(
+		`<h2>Page source for revision no. ${num}</h2>` +
+			(data.comment ? `<p><em>${escapeHtml(data.comment)}</em></p>` : "") +
+			`<div class="page-source"><pre>${escapeHtml(data.source)}</pre></div>`,
+	);
 }
 
 // --- 履歴表示 ---
@@ -412,10 +513,13 @@ async function showHistory(path: string) {
 			return (
 				`<tr id="revision-row-${r.revisionNumber}">` +
 				`<td>${r.revisionNumber}.</td>` +
+				`<td style="width: 5em">&nbsp;</td>` +
+				`<td>&nbsp;</td>` +
 				`<td style="width: 5em" class="optionstd">` +
-				`<a href="javascript:;" data-action="view-revision" data-path="${path}" data-rev="${r.revisionNumber}" title="View this version">V</a> ` +
-				`<a href="javascript:;" data-action="source-revision" data-path="${path}" data-rev="${r.revisionNumber}" title="View source of this version">S</a>` +
+				`<a title="" href="javascript:;" data-action="view-revision" data-path="${path}" data-rev="${r.revisionNumber}">V</a> ` +
+				`<a title="" href="javascript:;" data-action="source-revision" data-path="${path}" data-rev="${r.revisionNumber}">S</a>` +
 				`</td>` +
+				`<td style="width: 15em">${r.createdBy ?? ""}</td>` +
 				`<td style="padding: 0 0.5em; width: 7em;">${date}</td>` +
 				`<td style="font-size: 90%">${escapeHtml(r.comment ?? "")}</td>` +
 				`</tr>`
@@ -425,14 +529,16 @@ async function showHistory(path: string) {
 
 	setHtml(
 		actionArea,
-		`<a href="javascript:;" class="action-area-close" id="btn-close-action">Close</a>` +
-			`<h1>Page History</h1>` +
+		`<a href="javascript:;" class="action-area-close btn btn-danger" id="btn-close-action">` +
+			`<i class="icon-remove"></i> Close</a>` +
+			`<h1>Page history of changes</h1>` +
 			`<div id="revision-list">` +
 			`<table class="page-history"><tbody>` +
-			`<tr><td>rev.</td><td>Actions</td><td>Date</td><td>Comment</td></tr>` +
+			`<tr><td>rev.</td><td>&nbsp;</td><td>flags</td><td>actions</td><td>by</td><td>date</td><td>comments</td></tr>` +
 			rows +
 			`</tbody></table>` +
-			`</div>`,
+			`</div>` +
+			`<div id="history-subarea" style="display: none;"></div>`,
 	);
 	$("#btn-close-action")?.addEventListener("click", () => setHtml(actionArea, ""));
 }
@@ -520,6 +626,12 @@ function setupEventHandlers() {
 				showHistory(path);
 			} else if (action === "source") {
 				showSource(path);
+			} else if (action === "view-revision") {
+				const rev = Number(actionAnchor.dataset.rev);
+				if (!Number.isNaN(rev)) showRevisionView(path, rev);
+			} else if (action === "source-revision") {
+				const rev = Number(actionAnchor.dataset.rev);
+				if (!Number.isNaN(rev)) showRevisionSource(path, rev);
 			}
 			return;
 		}
@@ -623,21 +735,21 @@ function showReferenceWarning(
 // --- 新規ページ作成フォーム（/new SSR） ---
 
 function setupNewPageForm() {
-	const form = $("#new-page-form");
-	if (!form) return;
-	const type = form.dataset.newType;
+	// /new SSR では action-area に data-new-type が付く（Wikidot互換構造）
+	const area = $("#action-area");
+	const type = area?.dataset.newType;
 	if (type !== "share" && type !== "private") return;
 
-	$("#btn-new-save")?.addEventListener("click", async () => {
+	$("#edit-save-button")?.addEventListener("click", async () => {
 		const body = {
 			type,
-			title: ($("#new-title") as HTMLInputElement).value,
-			source: ($("#new-source") as HTMLTextAreaElement).value,
-			tags: ($("#new-tags") as HTMLInputElement).value
+			title: ($("#edit-page-title") as HTMLInputElement).value,
+			source: ($("#edit-page-textarea") as HTMLTextAreaElement).value,
+			tags: ($("#edit-page-tags") as HTMLInputElement).value
 				.split(",")
 				.map((t: string) => t.trim())
 				.filter(Boolean),
-			comment: ($("#new-comment") as HTMLInputElement).value,
+			comment: ($("#edit-page-comments") as HTMLTextAreaElement).value,
 		};
 
 		const res = await fetch("/api/page/new", {
@@ -648,7 +760,6 @@ function setupNewPageForm() {
 
 		if (res.ok) {
 			const data = (await res.json()) as { path: string };
-			// SSR側でviewer/visibility等を再評価するためフルロード遷移
 			window.location.href = `/${data.path}`;
 		} else {
 			const err = (await res.json().catch(() => ({ error: `HTTP ${res.status}` }))) as {
@@ -658,8 +769,9 @@ function setupNewPageForm() {
 		}
 	});
 
-	$("#btn-new-preview")?.addEventListener("click", async () => {
-		const src = ($("#new-source") as HTMLTextAreaElement).value;
+	$("#edit-preview-button")?.addEventListener("click", async () => {
+		const src = ($("#edit-page-textarea") as HTMLTextAreaElement).value;
+		const title = ($("#edit-page-title") as HTMLInputElement).value;
 		const res = await fetch("/api/preview", {
 			method: "POST",
 			headers: { "Content-Type": "application/json", Origin: window.location.origin },
@@ -668,10 +780,9 @@ function setupNewPageForm() {
 		if (res.ok) {
 			const data = (await res.json()) as { html: string; styles: string[] };
 			injectStyles(data.styles);
-			setHtml(
-				$("#new-preview-area"),
-				`<h3>Preview</h3><div class="preview-content">${data.html}</div>`,
-			);
+			setHtml($("#page-title"), title ? `<span>${escapeHtml(title)}</span>` : "");
+			setHtml($("#page-content"), data.html);
+			initRuntime();
 		}
 	});
 }
@@ -682,8 +793,9 @@ async function init() {
 	setupEventHandlers();
 	await Promise.all([loadAuthStatus(), loadSidebar(), loadTopbar()]);
 
-	// /new SSR画面が居る場合はそのフォームを起動して終了
-	if ($("#new-page-form")) {
+	// /new SSR画面（action-area に data-new-type）が居る場合はフォーム起動して終了
+	const newArea = $("#action-area");
+	if (newArea?.dataset.newType) {
 		setupNewPageForm();
 		return;
 	}

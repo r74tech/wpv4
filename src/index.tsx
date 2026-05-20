@@ -41,37 +41,86 @@ app.get("/new", async (c) => {
 		renderNav(c.env, "top", viewer.id),
 	]);
 
+	// Wikidot のページ編集画面構造を踏襲（既存CSSを活かすため）
 	return c.html(
 		<WikidotShell sidebar={sidebar} topbar={topbar}>
-			<div id="page-title">
-				<span>New {type} page</span>
-			</div>
-			<div id="page-content">
-				<div id="new-page-form" data-new-type={type}>
-					<div class="edit-field">
-						<label for="new-title">Title</label>
-						<input type="text" id="new-title" value="" />
-					</div>
-					<div class="edit-field">
-						<label for="new-source">Page Source</label>
-						<textarea id="new-source" rows={20} />
-					</div>
-					<div class="edit-field">
-						<label for="new-tags">Tags (comma separated)</label>
-						<input type="text" id="new-tags" value="" />
-					</div>
-					<div class="edit-field">
-						<label for="new-comment">Comment</label>
-						<input type="text" id="new-comment" value="" />
-					</div>
-					<div class="edit-actions">
-						<button id="btn-new-save" data-type={type}>
-							Save
-						</button>
-						<button id="btn-new-preview">Preview</button>
-						<a href="/">Cancel</a>
-					</div>
-					<div id="new-preview-area" />
+			<div id="page-title" />
+			<div id="page-content" />
+			<div id="action-area" style="display: block;" data-new-type={type}>
+				<h1>Create a new {type} page</h1>
+				<div>
+					<form id="edit-page-form" onsubmit="return false;">
+						<table class="form" style="margin: 0.5em auto 1em 0">
+							<tbody>
+								<tr>
+									<td>Title of the page:</td>
+									<td>
+										<input
+											class="text"
+											id="edit-page-title"
+											name="title"
+											type="text"
+											value=""
+											size={35}
+											maxlength={128}
+											style="font-weight: bold; font-size: 130%;"
+										/>
+									</td>
+								</tr>
+							</tbody>
+						</table>
+						<div>
+							<textarea
+								id="edit-page-textarea"
+								name="source"
+								rows={20}
+								cols={60}
+								style="width: 95%;"
+							/>
+						</div>
+						<div class="edit-help-34">
+							Help:{" "}
+							<a href="http://www.wikidot.com/doc:quick-reference" target="_blank" rel="noopener">
+								wiki text quick reference
+							</a>
+						</div>
+						<table class="edit-page-bottomtable" style="padding: 2px 0; border: none;">
+							<tbody>
+								<tr>
+									<td style="border: none; padding: 0 5px;">
+										<div>
+											Tags (comma separated):
+											<br />
+											<input type="text" id="edit-page-tags" name="tags" value="" />
+										</div>
+										<div style="margin-top: 0.5em;">
+											Short description of changes:
+											<br />
+											<textarea id="edit-page-comments" name="comments" rows={2} cols={40} />
+										</div>
+									</td>
+								</tr>
+							</tbody>
+						</table>
+						<div class="buttons alignleft">
+							<a href="/" class="btn btn-danger" id="edit-cancel-button">
+								Cancel
+							</a>
+							<input
+								type="button"
+								id="edit-preview-button"
+								class="btn btn-default"
+								value="Preview"
+							/>
+							<input
+								type="button"
+								id="edit-save-button"
+								class="btn btn-primary"
+								value="Save"
+								data-type={type}
+							/>
+						</div>
+					</form>
 				</div>
 			</div>
 		</WikidotShell>,
