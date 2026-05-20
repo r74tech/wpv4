@@ -33,8 +33,8 @@ export const pages = sqliteTable(
 	"pages",
 	{
 		id: integer("id").primaryKey({ autoIncrement: true }),
-		category: text("category").notNull().default("_default"),
-		unixName: text("unix_name").notNull(),
+		category: text("category").notNull(),
+		unixName: text("unix_name").notNull().unique(),
 		title: text("title").notNull().default(""),
 		source: text("source").notNull().default(""),
 		revisionCount: integer("revision_count").default(0),
@@ -44,10 +44,7 @@ export const pages = sqliteTable(
 		createdAt: text("created_at").default(now),
 		updatedAt: text("updated_at").default(now),
 	},
-	(table) => [
-		uniqueIndex("idx_pages_category_name").on(table.category, table.unixName),
-		index("idx_pages_category").on(table.category),
-	],
+	(table) => [index("idx_pages_category").on(table.category)],
 );
 
 export const revisions = sqliteTable(

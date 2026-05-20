@@ -21,8 +21,8 @@ CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 
 CREATE TABLE IF NOT EXISTS pages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    category TEXT NOT NULL DEFAULT '_default',
-    unix_name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    unix_name TEXT NOT NULL UNIQUE,
     title TEXT NOT NULL DEFAULT '',
     source TEXT NOT NULL DEFAULT '',
     revision_count INTEGER DEFAULT 0,
@@ -30,11 +30,9 @@ CREATE TABLE IF NOT EXISTS pages (
     created_by INTEGER REFERENCES users(id),
     updated_by INTEGER REFERENCES users(id),
     created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now')),
-    UNIQUE(category, unix_name)
+    updated_at TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_pages_category ON pages(category);
-CREATE INDEX IF NOT EXISTS idx_pages_category_name ON pages(category, unix_name);
 
 CREATE TABLE IF NOT EXISTS revisions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
