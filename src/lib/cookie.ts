@@ -37,7 +37,12 @@ export function stateCookieOptions(url: string, maxAge = 300): CookieOptions {
 	return {
 		httpOnly: true,
 		secure,
-		sameSite: secure ? "Strict" : "Lax",
+		// OAuth/Passkey の state cookie は外部 provider からのリダイレクトで戻ってくる
+		// callback で必要になる。 Strict だとクロスサイトナビゲーションで cookie が
+		// 送られず callback 側で stateKey 不在になり「Missing parameters」になるため
+		// Lax 必須。 state 値自体が一回限りの secret なので Lax で十分（CSRF 耐性は
+		// state 値の検証で担保している）。
+		sameSite: "Lax",
 		path: "/",
 		maxAge,
 	};
