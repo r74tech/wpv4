@@ -22,7 +22,7 @@
 		{
 			"binding": "DB",
 			"database_name": "wpv4-db",
-			"database_id": "10a1d195-723b-4e1c-83ce-59c48a2de595",
+			"database_id": "5cd1ee6c-1e38-4147-90bf-fe689bddb638",
 			"migrations_dir": "db/migrations"
 		}
 	],
@@ -50,7 +50,7 @@
 				{
 					"binding": "DB",
 					"database_name": "wpv4-db-staging",
-					"database_id": "10a1d195-723b-4e1c-83ce-59c48a2de595",
+					"database_id": "5cd1ee6c-1e38-4147-90bf-fe689bddb638",
 					"migrations_dir": "db/migrations"
 				}
 			],
@@ -83,7 +83,7 @@
 				{
 					"binding": "DB",
 					"database_name": "wpv4-db-prd",
-					"database_id": "139072e2-5480-433e-a77b-6f29a34666dc",
+					"database_id": "ba04672f-a87f-4f0b-9ce9-f75db3d20732",
 					"migrations_dir": "db/migrations"
 				}
 			],
