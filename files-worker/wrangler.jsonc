@@ -13,7 +13,7 @@
 	"r2_buckets": [
 		{
 			"binding": "FILES",
-			"bucket_name": "wpv4-html-blocks"
+			"bucket_name": "wpv4-files-staging"
 		}
 	],
 	"vars": {
@@ -31,7 +31,7 @@
 			"r2_buckets": [
 				{
 					"binding": "FILES",
-					"bucket_name": "wpv4-html-blocks-staging"
+					"bucket_name": "wpv4-files-staging"
 				}
 			],
 			"vars": {
@@ -39,7 +39,7 @@
 				"HTML_BLOCK_CSS_URL": "https://wpv4-staging.r74.workers.dev/common--theme/base/css/html-block.css"
 			}
 		},
-		// production: main ブランチから自動デプロイ
+		// production: production ブランチから自動デプロイ
 		// ドメイン: wpfiles.r74.workers.dev (Workers default subdomain)
 		"production": {
 			"name": "wpfiles",
@@ -47,7 +47,7 @@
 			"r2_buckets": [
 				{
 					"binding": "FILES",
-					"bucket_name": "wpv4-html-blocks-prd"
+					"bucket_name": "wpv4-files-prd"
 				}
 			],
 			"vars": {

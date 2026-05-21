@@ -8,9 +8,9 @@ import type { DataProvider, ResolveOptions } from "@wdprlib/parser";
 import { renderToHtml } from "@wdprlib/render";
 import type { RenderOptions } from "@wdprlib/render";
 import { drizzle } from "drizzle-orm/d1";
-import { eq, and, or } from "drizzle-orm";
+import { eq, and, ne } from "drizzle-orm";
 import { pages, pageTags } from "@/db/schema";
-import { getVisibility, isPrivate, isShare, normalizeUlid } from "@/lib/visibility";
+import { isUlidCategory, normalizeUlid, visibilityPolicy } from "@/lib/visibility";
 import type { Bindings } from "@/types/env";
 
 export type RenderResult = {
@@ -19,28 +19,20 @@ export type RenderResult = {
 };
 
 /**
- * viewer視点で公開対象になるページのみ含めるDrizzle WHERE 句を返す。
- * 限定列挙（getVisibility ベース）:
- *   - share: 誰でも
- *   - system: nav:side, nav:top, _default:main の3パターン限定
- *   - private: viewerId が created_by と一致する場合のみ
- *   - 未知カテゴリ: 一切除外
+ * viewer視点で「閲覧可能」なページの WHERE 句（pageExists / include / fetch 用）。
+ * private はそもそも include 不可・他人の private を pageExists で見せたくないため
+ * owner例外なしで一律除外する（含めると include 仕様と意味が割れる）。
  */
-function visibleByViewer(viewerId: number | null) {
-	const shareCond = eq(pages.category, "share");
-	const systemCond = or(
-		and(eq(pages.category, "nav"), eq(pages.unixName, "side")),
-		and(eq(pages.category, "nav"), eq(pages.unixName, "top")),
-		and(eq(pages.category, "_default"), eq(pages.unixName, "main")),
-	);
-	if (viewerId === null) {
-		return or(shareCond, systemCond);
-	}
-	return or(
-		shareCond,
-		systemCond,
-		and(eq(pages.category, "private"), eq(pages.createdBy, viewerId)),
-	);
+function visibleByViewer(_viewerId: number | null) {
+	return ne(pages.category, "private");
+}
+
+/**
+ * ListPages モジュール用の WHERE 句: share / private を除いた public 相当のページのみ。
+ * share は URL を知っている人だけが見る semi-public、private は作成者専用なので一覧非掲載。
+ */
+function listPagesScope() {
+	return and(ne(pages.category, "share"), ne(pages.category, "private"));
 }
 
 /**
@@ -99,9 +91,40 @@ async function hmacSha256Hex(secret: string, message: string): Promise<string> {
 }
 
 /**
+ * 指定 page の html-block を visibility 切替に伴って R2 prefix 間で移動する。
+ * old prefix から list → copy → delete を直列実行（少数想定なのでO(n)で十分）。
+ * R2 list の prefix は `${prefix}/${page}/` で限定し、 他 page の object を巻き込まない。
+ *
+ * codex 2回目 Finding 2 対応: visibility toggle 時に旧 prefix のオブジェクトが
+ * 残り続けると、URL 切替後に 404 が出る + 旧 prefix からの漏洩リスク（private→public 後の
+ * 旧 local--html/ オブジェクトは無いので問題ないが、public→private で旧 local--html/ が
+ * 残ると ukey 無しでアクセス可能）になるため、必ず移動する。
+ */
+export async function moveHtmlBlocksForVisibilityChange(
+	r2: R2Bucket,
+	page: string,
+	fromVisibility: "public" | "share" | "private",
+	toVisibility: "public" | "share" | "private",
+): Promise<void> {
+	const fromPrefix = fromVisibility === "private" ? "private--html" : "local--html";
+	const toPrefix = toVisibility === "private" ? "private--html" : "local--html";
+	if (fromPrefix === toPrefix) return;
+
+	const list = await r2.list({ prefix: `${fromPrefix}/${page}/` });
+	for (const obj of list.objects) {
+		const newKey = obj.key.replace(`${fromPrefix}/`, `${toPrefix}/`);
+		const src = await r2.get(obj.key);
+		if (!src) continue;
+		await r2.put(newKey, src.body, { httpMetadata: src.httpMetadata });
+		await r2.delete(obj.key);
+	}
+}
+
+/**
  * private html-block 用の ukey 付き URL を生成する。
- * パスは share と同じ `/local--html/<page>/<hash>` で、ukey + exp の有無で
- * files-worker 側が public / private を分岐する（Wikidot互換）。
+ * R2 key と URL パスは public/share と分離して `/private--html/<page>/<hash>` を使う。
+ * これにより URL から ?ukey=... を削っても public 経路で配信されない（security 優先で
+ * Wikidot URL 互換は犠牲にする）。
  * ukey = HMAC-SHA256(FILES_URL_SECRET, `${page}:${hash}:${exp}`)
  * exp は Unix秒（1時間後）
  */
@@ -113,7 +136,7 @@ async function buildPrivateHtmlBlockUrl(
 ): Promise<string> {
 	const exp = Math.floor(Date.now() / 1000) + 3600;
 	const ukey = await hmacSha256Hex(secret, `${page}:${hash}:${exp}`);
-	return `${filesDomain}/local--html/${page}/${hash}?ukey=${ukey}&exp=${exp}`;
+	return `${filesDomain}/private--html/${page}/${hash}?ukey=${ukey}&exp=${exp}`;
 }
 
 /**
@@ -122,7 +145,7 @@ async function buildPrivateHtmlBlockUrl(
  */
 function normalizePageKey(page: string): string {
 	const [category, unixName] = parsePagePath(page);
-	if (isShare(category) || isPrivate(category)) {
+	if (isUlidCategory(category)) {
 		return `${category}:${normalizeUlid(unixName)}`;
 	}
 	return page;
@@ -151,21 +174,22 @@ export async function renderWikitext(
 	const db = drizzle(env.DB);
 	const viewerId = options.viewerId ?? null;
 
-	// include展開: 限定列挙で share/system のみ許可（private/未知カテゴリは一律 null）
+	// include 展開:
+	// - pages.unix_name は単独 UNIQUE なので、ULID/固定名どちらも一意特定可能
+	// - public↔share トグルで category が変わっても unix_name 検索なら追従できる
+	//   (codex 2回目 Finding 1: include は category 非依存で解決すべき)
+	// - canInclude 判定は「DB 上の現在の category」で行う (URL での指定ではなく)
 	const expanded = await resolveIncludesAsync(source, async (pageRef) => {
 		const [catRaw, nameRaw] = parsePagePath(pageRef.page);
-		const cat = catRaw;
-		const name = isShare(cat) || isPrivate(cat) ? normalizeUlid(nameRaw) : nameRaw;
-		const vis = getVisibility(cat, name);
-		if (vis !== "share" && vis !== "system") {
-			return null;
-		}
+		const name = isUlidCategory(catRaw) ? normalizeUlid(nameRaw) : nameRaw;
 		const result = await db
-			.select({ source: pages.source })
+			.select({ source: pages.source, category: pages.category })
 			.from(pages)
-			.where(and(eq(pages.category, cat), eq(pages.unixName, name)))
+			.where(eq(pages.unixName, name))
 			.limit(1);
-		return result[0]?.source ?? null;
+		if (!result[0]) return null;
+		if (!visibilityPolicy(result[0].category).canInclude) return null;
+		return result[0].source;
 	});
 
 	const parseResult = parse(expanded);
@@ -175,7 +199,8 @@ export async function renderWikitext(
 
 	const dataProvider: DataProvider = {
 		async fetchListPages(_query, _requirement) {
-			const visiblePages = await db.select().from(pages).where(visibleByViewer(viewerId));
+			// ListPages 対象は public + system のみ。share / private は除外
+			const visiblePages = await db.select().from(pages).where(listPagesScope());
 			const allTags = await db.select().from(pageTags);
 			const tagsByPageId = new Map<number, string[]>();
 			for (const t of allTags) {
@@ -220,10 +245,12 @@ export async function renderWikitext(
 	const existingPages = options.existingPages ?? (await getExistingPageSet(env.DB, viewerId));
 
 	// html-block を R2 に content-addressed で保存し、iframe URL を返す resolver を構築
-	// R2 key / URL パスは Wikidot 互換で `local--html/<page>/<hash>` 統一
-	// - share / system: ukey なし（CDN cache 可、誰でも閲覧）
-	// - private: ukey(HMAC) + exp 付き URL（files-worker が検証、非キャッシュ）
-	const isPrivatePage = isPrivate(options.category);
+	// R2 key と URL パスは visibility で分離（security 優先で URL 削っても漏洩しない）:
+	// - public / share / その他: `local--html/<page>/<hash>` (ukey なし、CDN cache 可)
+	// - private:                 `private--html/<page>/<hash>?ukey=...&exp=...` (HMAC 必須)
+	const pagePolicy = visibilityPolicy(options.category);
+	const isPrivatePage = pagePolicy.visibility === "private";
+	const r2Prefix = isPrivatePage ? "private--html" : "local--html";
 	const htmlBlocks = resolvedAst["html-blocks"] ?? [];
 	const filesDomain = env.FILES_DOMAIN.replace(/\/$/, "");
 
@@ -232,7 +259,7 @@ export async function renderWikitext(
 		htmlBlocks.map(async (content) => {
 			const hash = await sha256Hex(content);
 			if (options.persistHtmlBlocks) {
-				await env.R2.put(`local--html/${options.pageName}/${hash}`, content, {
+				await env.R2.put(`${r2Prefix}/${options.pageName}/${hash}`, content, {
 					httpMetadata: { contentType: "text/html; charset=utf-8" },
 				});
 			}

@@ -4,7 +4,11 @@ import { z } from "zod";
 import { drizzle } from "drizzle-orm/d1";
 import { eq, and } from "drizzle-orm";
 import { pages, revisions, pageTags, users } from "@/db/schema";
-import { renderWikitext, parsePagePath } from "@/services/pipeline";
+import {
+	renderWikitext,
+	parsePagePath,
+	moveHtmlBlocksForVisibilityChange,
+} from "@/services/pipeline";
 import { renderNav } from "@/services/nav";
 import { requireAuth } from "@/middleware/session";
 import { verifyCsrf } from "@/middleware/csrf";
@@ -14,12 +18,12 @@ import {
 	canViewPage,
 	generateUlid,
 	getVisibility,
-	isPrivate,
-	isShare,
+	isUlidCategory,
 	isValidPageIdentifier,
 	isValidUlid,
 	normalizeUlid,
 	toRevisionVisibility,
+	visibilityPolicy,
 } from "@/lib/visibility";
 import { findReferencingPages } from "@/services/visibility-check";
 import type { AppEnv } from "@/types/env";
@@ -32,7 +36,7 @@ api.use("*", verifyCsrf);
 // パス文字列を [category, unixName] に分解し、share/private なら unix_name を小文字統一
 function parseAndNormalize(pagePath: string): [string, string] {
 	const [category, unixName] = parsePagePath(pagePath);
-	if (isShare(category) || isPrivate(category)) {
+	if (isUlidCategory(category)) {
 		return [category, normalizeUlid(unixName)];
 	}
 	return [category, unixName];
@@ -121,9 +125,9 @@ api.get("/page-source/*", async (c) => {
 	});
 });
 
-// 新規ページ作成（share/private専用、ULID自動採番）
+// 新規ページ作成（public/share/private専用、ULID自動採番）
 const newPageSchema = z.object({
-	type: z.enum(["share", "private"]),
+	type: z.enum(["public", "share", "private"]),
 	title: z.string(),
 	source: z.string(),
 	tags: z.array(z.string()).default([]),
@@ -165,7 +169,7 @@ api.post("/page/new", requireAuth, zValidator("json", newPageSchema), async (c) 
 			title: body.title,
 			source: body.source,
 			comment: body.comment,
-			visibility: body.type,
+			visibility: toRevisionVisibility(body.type),
 			createdBy: user.id,
 		}),
 		...uniqueTags.map((tag) => db.insert(pageTags).values({ pageId, tag })),
@@ -282,9 +286,9 @@ api.put("/page/*", requireAuth, zValidator("json", updatePageSchema), async (c) 
 	});
 });
 
-// visibility トグル（share ↔ private）
+// visibility トグル（public ↔ share ↔ private）
 const visibilitySchema = z.object({
-	target: z.enum(["share", "private"]),
+	target: z.enum(["public", "share", "private"]),
 	force: z.boolean().optional().default(false),
 });
 
@@ -314,19 +318,34 @@ api.post("/page/:ulid/visibility", requireAuth, zValidator("json", visibilitySch
 		return c.json({ error: "Already in target visibility" }, 400);
 	}
 
-	// share→private のときだけ include 被参照を検出
-	if (body.target === "private") {
-		const refs = await findReferencingPages(db, ulid, page[0].id, user.id);
-		if (!body.force && (refs.visible.length > 0 || refs.hiddenCount > 0)) {
+	// 被include / ListPages 影響の警告判定:
+	// - target=private → include が error-block 化（include可→不可の遷移）
+	// - public ↔ share の切替 → include は両方OKなので影響なしだが、
+	//   ListPages 掲載状況が変わるので警告対象（public のみListPages掲載）
+	const includeBecomesBroken = body.target === "private";
+	const listPagesPresenceChanges = (page[0].category === "public") !== (body.target === "public");
+
+	if ((includeBecomesBroken || listPagesPresenceChanges) && !body.force) {
+		// include 影響時のみ被参照検出、ListPages のみ影響時は検出スキップ可だが
+		// 警告内容に含めるため取得
+		const refs = includeBecomesBroken
+			? await findReferencingPages(db, ulid, page[0].id, user.id)
+			: { visible: [], hiddenCount: 0 };
+		// listPagesPresenceChanges は被参照ゼロでも 409（codex 指摘 #2）。
+		// includeBecomesBroken は被参照ゼロなら通す（壊れる先がないため）
+		const shouldWarn = listPagesPresenceChanges || refs.visible.length > 0 || refs.hiddenCount > 0;
+		if (shouldWarn) {
 			return c.json(
 				{
-					error: "Page is referenced by other pages",
+					error: "Visibility change has notable impact",
 					referenced_by: refs.visible.map((r) => ({
 						category: r.category,
 						unix_name: r.unixName,
 						title: r.title,
 					})),
 					hidden_referenced_count: refs.hiddenCount,
+					include_becomes_broken: includeBecomesBroken,
+					list_pages_presence_changes: listPagesPresenceChanges,
 				},
 				409,
 			);
@@ -359,6 +378,18 @@ api.post("/page/:ulid/visibility", requireAuth, zValidator("json", visibilitySch
 		return c.json({ error: "Conflict: page was modified concurrently" }, 409);
 	}
 
+	// codex 2回目 Finding 2: visibility 切替に伴い R2 html-block prefix を移動する
+	// （旧 prefix のオブジェクトが残ると 404 / 旧 public URL からの漏洩リスク）
+	const fromVis = visibilityPolicy(page[0].category).visibility;
+	const toVis = visibilityPolicy(body.target).visibility;
+	if (fromVis !== "public" && fromVis !== "share" && fromVis !== "private") {
+		// 想定外（toggle 対象は public/share/private のみ canManagePage で保証）
+	} else if (toVis !== "public" && toVis !== "share" && toVis !== "private") {
+		// 同上
+	} else {
+		await moveHtmlBlocksForVisibilityChange(c.env.R2, ulid, fromVis, toVis);
+	}
+
 	await db.insert(revisions).values({
 		pageId: page[0].id,
 		revisionNumber: newRevisionNumber,
@@ -366,7 +397,7 @@ api.post("/page/:ulid/visibility", requireAuth, zValidator("json", visibilitySch
 		source: page[0].source,
 		comment,
 		// トグル後の新しい visibility をスナップショット
-		visibility: body.target,
+		visibility: toRevisionVisibility(body.target),
 		createdBy: user.id,
 	});
 

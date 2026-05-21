@@ -2,8 +2,9 @@
 	"name": "wpv4",
 	"type": "module",
 	"scripts": {
-		"dev": "vite",
+		"dev": "bun run build && vite",
 		"dev:wrangler": "wrangler dev",
+		"kill": "pgrep -fa 'wpv4' | grep -E '(vite|wrangler|workerd|esbuild)' | awk '{print $1}' | xargs -r kill -KILL 2>/dev/null; echo done",
 		"build": "vite build --mode client && vite build",
 		"deploy": "bun run build && wrangler deploy --minify",
 		"lint": "oxlint src/",

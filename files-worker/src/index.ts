@@ -131,6 +131,7 @@ export default {
 		}
 
 		const htmlMatch = path.match(/^\/local--html\/([^/]+)\/([^/]+)$/);
+		const privateHtmlMatch = path.match(/^\/private--html\/([^/]+)\/([^/]+)$/);
 		const codeMatch = path.match(/^\/local--code\/([^/]+)\/([^/]+)$/);
 
 		let key: string;
@@ -139,29 +140,32 @@ export default {
 		const securityHeaders: Record<string, string> = { "X-Content-Type-Options": "nosniff" };
 
 		if (htmlMatch) {
+			// public / share / その他 html-block: 誰でも CDN 経由で配信
 			const [, page, hash] = htmlMatch;
-			// ukey クエリがあれば HMAC 検証必須（private ページの html-block）
-			// なければ share/system として誰でも閲覧可（CDN cache 可）
-			const ukey = url.searchParams.get("ukey");
-			if (ukey) {
-				const secret = env.FILES_URL_SECRET;
-				if (!secret) return new Response("Server misconfigured", { status: 500 });
-				const expStr = url.searchParams.get("exp") ?? "";
-				const exp = Number(expStr);
-				if (!Number.isFinite(exp)) {
-					return new Response("Forbidden", { status: 403 });
-				}
-				if (exp < Math.floor(Date.now() / 1000)) {
-					return new Response("Forbidden: link expired", { status: 403 });
-				}
-				const expected = await hmacSha256Hex(secret, `${page}:${hash}:${exp}`);
-				if (!timingSafeEqualHex(ukey, expected)) {
-					return new Response("Forbidden", { status: 403 });
-				}
-				cacheControl = "private, no-store";
-			}
 			key = `local--html/${page}/${hash}`;
 			contentType = "text/html; charset=utf-8";
+		} else if (privateHtmlMatch) {
+			// private html-block: ukey + exp の HMAC 検証必須、URL から ukey を削っても
+			// public 経路に fallback しない（R2 prefix も別なので存在しない）
+			const [, page, hash] = privateHtmlMatch;
+			const secret = env.FILES_URL_SECRET;
+			if (!secret) return new Response("Server misconfigured", { status: 500 });
+			const ukey = url.searchParams.get("ukey") ?? "";
+			const expStr = url.searchParams.get("exp") ?? "";
+			const exp = Number(expStr);
+			if (!ukey || !Number.isFinite(exp)) {
+				return new Response("Forbidden", { status: 403 });
+			}
+			if (exp < Math.floor(Date.now() / 1000)) {
+				return new Response("Forbidden: link expired", { status: 403 });
+			}
+			const expected = await hmacSha256Hex(secret, `${page}:${hash}:${exp}`);
+			if (!timingSafeEqualHex(ukey, expected)) {
+				return new Response("Forbidden", { status: 403 });
+			}
+			key = `private--html/${page}/${hash}`;
+			contentType = "text/html; charset=utf-8";
+			cacheControl = "private, no-store";
 		} else if (codeMatch) {
 			const [, page, index] = codeMatch;
 			key = `local--code/${page}/${index}`;
@@ -187,8 +191,8 @@ export default {
 			return new Response(null, { headers });
 		}
 
-		// html-block は iframe sandbox 用にラップする
-		if (htmlMatch) {
+		// html-block は iframe sandbox 用にラップする（public/private とも同じラップ）
+		if (htmlMatch || privateHtmlMatch) {
 			const rawContent = await object.text();
 			const transformed = addResizeScript(rawContent, cssUrl);
 			const newHeaders = new Headers(transformed.headers);

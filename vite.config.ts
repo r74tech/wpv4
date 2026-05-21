@@ -46,11 +46,23 @@ export default defineConfig(({ mode, command }) => {
 		);
 	}
 
+	// client-manifest-data alias:
+	// - vite build (SSR) では実 manifest を inline 化（client build 後に存在）
+	// - vite dev / typecheck では空 stub にフォールバック（dist/ 未生成でも壊さない）
+	const clientManifestPath =
+		command === "build" ? "/dist/.vite/manifest.json" : "/src/_manifest-stub.json";
 	return {
 		resolve: {
 			alias: {
 				"@": "/src",
+				"client-manifest-data": clientManifestPath,
 			},
+		},
+		// import.meta.env.PROD / DEV を build 時にリテラル置換して
+		// Workers runtime (import.meta が limited) でも値が解決できるようにする
+		define: {
+			"import.meta.env.PROD": JSON.stringify(command !== "serve"),
+			"import.meta.env.DEV": JSON.stringify(command === "serve"),
 		},
 		plugins,
 	};

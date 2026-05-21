@@ -10,6 +10,11 @@
 			"invocation_logs": true
 		}
 	},
+	// client-manifest-data: src/client-manifest.ts が import する virtual module。
+	// build後の dist/.vite/manifest.json を SSR bundle に inline するための alias
+	"alias": {
+		"client-manifest-data": "./dist/.vite/manifest.json"
+	},
 	// ローカル開発用のデフォルト設定（wrangler dev で使用）
 	// ローカル開発用 D1（wrangler dev は --local で .wrangler/state を読むため
 	// database_id は実体識別用、staging のものを流用しておく）
@@ -21,10 +26,11 @@
 			"migrations_dir": "db/migrations"
 		}
 	],
+	// ローカル開発用 R2（wrangler dev --local で .wrangler/state を使うため staging のものを流用）
 	"r2_buckets": [
 		{
 			"binding": "R2",
-			"bucket_name": "wpv4-html-blocks"
+			"bucket_name": "wpv4-files-staging"
 		}
 	],
 	"vars": {
@@ -51,7 +57,7 @@
 			"r2_buckets": [
 				{
 					"binding": "R2",
-					"bucket_name": "wpv4-html-blocks-staging"
+					"bucket_name": "wpv4-files-staging"
 				}
 			],
 			"vars": {
@@ -63,7 +69,7 @@
 				"directory": "public"
 			}
 		},
-		// production: main ブランチから自動デプロイ
+		// production: production ブランチから自動デプロイ
 		// カスタムドメイン: wp.r74.tech（Cloudflare ダッシュボードでバインド）
 		"production": {
 			"name": "wpv4-prd",
@@ -84,7 +90,7 @@
 			"r2_buckets": [
 				{
 					"binding": "R2",
-					"bucket_name": "wpv4-html-blocks-prd"
+					"bucket_name": "wpv4-files-prd"
 				}
 			],
 			"vars": {

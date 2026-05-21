@@ -12,7 +12,7 @@ type PageResponse = {
 	styles: string[];
 	revision_count: number;
 	updated_at: string;
-	visibility: "share" | "private" | "system" | null;
+	visibility: "public" | "share" | "private";
 	viewer_is_owner: boolean;
 	can_edit: boolean;
 	can_manage: boolean;
@@ -128,13 +128,15 @@ function updatePageOptions(path: string, page: PageResponse) {
 	parts.push(`<a href="javascript:;" data-action="source" data-path="${path}">Source</a>`);
 	parts.push(`<a href="javascript:;" data-action="history" data-path="${path}">History</a>`);
 
-	// share/private のオーナーには Toggle ボタン
-	if (page.can_manage && (page.visibility === "share" || page.visibility === "private")) {
-		const target = page.visibility === "share" ? "private" : "share";
-		const label = `Make ${target}`;
-		parts.push(
-			`<a href="javascript:;" data-action="toggle-visibility" data-ulid="${page.unix_name}" data-target="${target}">${label}</a>`,
-		);
+	// 作成者には現状以外の2つへの Toggle ボタンを出す
+	if (page.can_manage) {
+		const all: Array<"public" | "share" | "private"> = ["public", "share", "private"];
+		for (const target of all) {
+			if (target === page.visibility) continue;
+			parts.push(
+				`<a href="javascript:;" data-action="toggle-visibility" data-ulid="${page.unix_name}" data-target="${target}">Make ${target}</a>`,
+			);
+		}
 	}
 
 	setHtml(options, parts.join(""));
@@ -240,6 +242,7 @@ function updateSidebarActions() {
 		setHtml(
 			actions,
 			`<p>` +
+				`<a href="/new?type=public">+ New public page</a><br />` +
 				`<a href="/new?type=share">+ New share page</a><br />` +
 				`<a href="/new?type=private">+ New private page</a>` +
 				`</p>`,
@@ -610,8 +613,15 @@ function setupEventHandlers() {
 
 			if (action === "toggle-visibility") {
 				const ulid = actionAnchor.dataset.ulid;
-				const toggleTarget = actionAnchor.dataset.target as "share" | "private" | undefined;
-				if (ulid && (toggleTarget === "share" || toggleTarget === "private")) {
+				const toggleTarget = actionAnchor.dataset.target as
+					| "public"
+					| "share"
+					| "private"
+					| undefined;
+				if (
+					ulid &&
+					(toggleTarget === "public" || toggleTarget === "share" || toggleTarget === "private")
+				) {
 					await toggleVisibility(ulid, toggleTarget, false);
 				}
 				return;
@@ -654,7 +664,7 @@ function setupEventHandlers() {
 
 async function toggleVisibility(
 	ulid: string,
-	target: "share" | "private",
+	target: "public" | "share" | "private",
 	force: boolean,
 ): Promise<void> {
 	const res = await fetch(`/api/page/${ulid}/visibility`, {
@@ -674,8 +684,13 @@ async function toggleVisibility(
 		const data = (await res.json()) as {
 			referenced_by: ReferencedBy[];
 			hidden_referenced_count: number;
+			include_becomes_broken?: boolean;
+			list_pages_presence_changes?: boolean;
 		};
-		showReferenceWarning(ulid, target, data.referenced_by, data.hidden_referenced_count);
+		showReferenceWarning(ulid, target, data.referenced_by, data.hidden_referenced_count, {
+			includeBecomesBroken: data.include_becomes_broken ?? false,
+			listPagesPresenceChanges: data.list_pages_presence_changes ?? false,
+		});
 		return;
 	}
 
@@ -687,9 +702,10 @@ async function toggleVisibility(
 
 function showReferenceWarning(
 	ulid: string,
-	target: "share" | "private",
+	target: "public" | "share" | "private",
 	visible: ReferencedBy[],
 	hiddenCount: number,
+	impact: { includeBecomesBroken: boolean; listPagesPresenceChanges: boolean },
 ): void {
 	// 既存モーダルがあれば消す
 	$("#visibility-confirm-modal")?.remove();
@@ -707,6 +723,23 @@ function showReferenceWarning(
 			? `<p>This page is included in the following pages:</p><ul>${list}</ul>`
 			: "";
 
+	// 影響の説明
+	const impactItems: string[] = [];
+	if (impact.includeBecomesBroken) {
+		impactItems.push(`include references will become <strong>cannot-be-found</strong> blocks`);
+	}
+	if (impact.listPagesPresenceChanges) {
+		impactItems.push(
+			target === "public"
+				? `this page will appear in <strong>ListPages</strong> results`
+				: `this page will be removed from <strong>ListPages</strong> results`,
+		);
+	}
+	const impactSection =
+		impactItems.length > 0
+			? `<p>Switching to <strong>${escapeHtml(target)}</strong> means:</p><ul>${impactItems.map((s) => `<li>${s}</li>`).join("")}</ul>`
+			: "";
+
 	const modal = document.createElement("div");
 	modal.id = "visibility-confirm-modal";
 	modal.setAttribute("role", "dialog");
@@ -716,7 +749,7 @@ function showReferenceWarning(
 	modal.innerHTML =
 		`<div style="background:#fff;padding:1.5em;max-width:600px;width:90%;max-height:80vh;overflow:auto;border-radius:4px;">` +
 		`<h3>Make this page ${escapeHtml(target)}?</h3>` +
-		`<p>Switching to <strong>${escapeHtml(target)}</strong> will break the following include references:</p>` +
+		impactSection +
 		visibleSection +
 		hiddenLine +
 		`<div style="margin-top:1em;display:flex;gap:0.5em;justify-content:flex-end;">` +
@@ -738,7 +771,7 @@ function setupNewPageForm() {
 	// /new SSR では action-area に data-new-type が付く（Wikidot互換構造）
 	const area = $("#action-area");
 	const type = area?.dataset.newType;
-	if (type !== "share" && type !== "private") return;
+	if (type !== "public" && type !== "share" && type !== "private") return;
 
 	$("#edit-save-button")?.addEventListener("click", async () => {
 		const body = {

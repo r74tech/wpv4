@@ -12,7 +12,7 @@ import { user } from "./routes/user";
 import { passkeyApi } from "./routes/passkey-api";
 import { WikidotShell } from "./components/WikidotShell";
 import { resolveSession } from "./middleware/session";
-import { canViewPage, isShare, isPrivate, normalizeUlid } from "./lib/visibility";
+import { canViewPage, isUlidCategory, normalizeUlid } from "./lib/visibility";
 import type { AppEnv } from "./types/env";
 
 const app = new Hono<AppEnv>();
@@ -28,8 +28,8 @@ app.route("/user", user);
 // /new: 新規ページ作成画面（app.get("*") より前に登録）
 app.get("/new", async (c) => {
 	const type = c.req.query("type");
-	if (type !== "share" && type !== "private") {
-		return c.text("Invalid type. Expected 'share' or 'private'.", 400);
+	if (type !== "public" && type !== "share" && type !== "private") {
+		return c.text("Invalid type. Expected 'public', 'share' or 'private'.", 400);
 	}
 	const viewer = c.get("user");
 	if (!viewer) {
@@ -132,8 +132,7 @@ app.get("*", async (c) => {
 	const pagePath = rawPath || "main";
 	const [category, unixNameRaw] = parsePagePath(pagePath);
 	// share/private の unix_name は小文字統一（WDPR renderer の toLowerCase() と整合）
-	const unixName =
-		isShare(category) || isPrivate(category) ? normalizeUlid(unixNameRaw) : unixNameRaw;
+	const unixName = isUlidCategory(category) ? normalizeUlid(unixNameRaw) : unixNameRaw;
 
 	const viewerId = c.get("user")?.id ?? null;
 	const db = drizzle(c.env.DB);
