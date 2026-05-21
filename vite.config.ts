@@ -4,9 +4,12 @@ import adapter from "@hono/vite-dev-server/cloudflare";
 import { defineConfig } from "vite";
 
 export default defineConfig(({ mode, command }) => {
-	// Client-only build (for static assets)
+	// Client-only build: public/ に直接書き出して wrangler の assets.directory: "./public"
+	// から配信されるようにする。 既存の public/static/*.css 等を消さないよう emptyOutDir: false
+	// publicDir も false にしないと vite が public/ 内をコピーで上書きして無限ループになる
 	if (mode === "client") {
 		return {
+			publicDir: false,
 			build: {
 				rollupOptions: {
 					input: {
@@ -15,11 +18,12 @@ export default defineConfig(({ mode, command }) => {
 					},
 					output: {
 						entryFileNames: "static/[name].[hash].js",
+						chunkFileNames: "assets/[name]-[hash].js",
 					},
 				},
-				outDir: "dist",
+				outDir: "public",
 				emptyOutDir: false,
-				manifest: true,
+				manifest: ".vite/manifest.json",
 			},
 		};
 	}
@@ -48,9 +52,9 @@ export default defineConfig(({ mode, command }) => {
 
 	// client-manifest-data alias:
 	// - vite build (SSR) では実 manifest を inline 化（client build 後に存在）
-	// - vite dev / typecheck では空 stub にフォールバック（dist/ 未生成でも壊さない）
+	// - vite dev / typecheck では空 stub にフォールバック（public/.vite/ 未生成でも壊さない）
 	const clientManifestPath =
-		command === "build" ? "/dist/.vite/manifest.json" : "/src/_manifest-stub.json";
+		command === "build" ? "/public/.vite/manifest.json" : "/src/_manifest-stub.json";
 	return {
 		resolve: {
 			alias: {

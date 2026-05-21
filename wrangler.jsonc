@@ -13,7 +13,7 @@
 	// client-manifest-data: src/client-manifest.ts が import する virtual module。
 	// build後の dist/.vite/manifest.json を SSR bundle に inline するための alias
 	"alias": {
-		"client-manifest-data": "./dist/.vite/manifest.json"
+		"client-manifest-data": "./public/.vite/manifest.json"
 	},
 	// ローカル開発用のデフォルト設定（wrangler dev で使用）
 	// ローカル開発用 D1（wrangler dev は --local で .wrangler/state を読むため

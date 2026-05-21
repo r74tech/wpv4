@@ -1,5 +1,10 @@
 # prod
 dist/
+# vite client build output (public/ に直接書き出される)
+public/.vite/
+public/assets/
+public/static/main.*.js
+public/static/auth.*.js
 
 # dev
 .yarn/

@@ -14,3 +14,8 @@
 	font-size: unset;
 	letter-spacing: unset;
 }
+
+.page-source pre {
+	white-space: pre-wrap;
+	word-wrap: break-word;
+}
