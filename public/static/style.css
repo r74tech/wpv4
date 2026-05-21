@@ -1,5 +1,6 @@
 @import url(https://d3g0gp89917ko0.cloudfront.net/v--7690939296dc/common--theme/base/css/style.css);
 @import url(https://scp-jp.github.io/sigma/css/sigma.css);
+@import url(./colmod.css);
 
 #header {
 	background-image: unset;
