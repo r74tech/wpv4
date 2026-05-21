@@ -192,6 +192,7 @@ app.get("*", async (c) => {
 		tags: tags.map((t) => t.tag),
 		viewerId,
 		existingPages,
+		urlPath: c.req.path,
 	});
 
 	return c.html(

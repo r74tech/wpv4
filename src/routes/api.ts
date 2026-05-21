@@ -72,6 +72,9 @@ api.get("/page/*", async (c) => {
 		category,
 		tags: tags.map((t) => t.tag),
 		viewerId,
+		// SPA から /api/page/<page-path>/offset/1/... の形で呼ばれる。
+		// pagePath はその全体（category:name + URL params）なので `/` を付けて渡す。
+		urlPath: `/${pagePath}`,
 	});
 
 	return c.json({
@@ -287,8 +290,11 @@ api.put("/page/*", requireAuth, zValidator("json", updatePageSchema), async (c) 
 });
 
 // visibility トグル（public ↔ share ↔ private）
+// expected_category: クライアントがモーダルでユーザーに確認させた現在の category。
+// 別タブで先に切替えられた等で DB の現値とズレていたら 409 で即座に弾く（path 確認の信頼性担保）。
 const visibilitySchema = z.object({
 	target: z.enum(["public", "share", "private"]),
+	expected_category: z.enum(["public", "share", "private"]),
 	force: z.boolean().optional().default(false),
 });
 
@@ -313,6 +319,18 @@ api.post("/page/:ulid/visibility", requireAuth, zValidator("json", visibilitySch
 	}
 	if (page[0].isLocked) {
 		return c.json({ error: "Page is locked" }, 403);
+	}
+	if (page[0].category !== body.expected_category) {
+		// クライアント表示と DB の現 category が食い違っている。 path 確認の前提が崩れているので
+		// force でも通さず 409 を返してリロードを促す（モーダルが「private → share」を意図したのに
+		// 実 DB が public になっているケース等を防ぐ）。
+		return c.json(
+			{
+				error: "Page visibility was changed by another session. Reload and try again.",
+				actual_category: page[0].category,
+			},
+			409,
+		);
 	}
 	if (page[0].category === body.target) {
 		return c.json({ error: "Already in target visibility" }, 400);

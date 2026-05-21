@@ -53,9 +53,36 @@ function setHtml(el: HTMLElement | null, html: string) {
 
 // --- ページ読み込み ---
 
+function clearActionArea() {
+	// /new SSR で `data-new-type` が、 showEditor で `data-edit-path` が action-area に
+	// 残っていると、 SPA 遷移後も古いフォームと dataset が見えて setupPageForm() が
+	// 誤って新規作成 (POST /api/page/new) や旧 path への PUT を実行してしまう。
+	// ページ遷移時は必ずクリアする。
+	const area = $("#action-area");
+	if (!area) return;
+	setHtml(area, "");
+	area.removeAttribute("data-new-type");
+	area.removeAttribute("data-edit-path");
+	area.removeAttribute("data-base-rev");
+	area.style.display = "";
+}
+
+// URL パス（例: "private:01ks.../offset/1/page2_limit/1"）から
+// Wikidot 互換 URL パラメータ部分を切り捨て、ページ識別子（先頭の "/" セグメント）だけ
+// を返す。 Edit / data-path 等の "そのページを特定する文字列" には常にこちらを使う。
+function cleanPagePath(path: string): string {
+	const cleaned = path.replace(/^\/+|\/+$/g, "");
+	const first = cleaned.split("/")[0] ?? "";
+	return first || "main";
+}
+
 async function loadPage(path: string) {
+	clearActionArea();
 	const pageContent = $("#page-content");
 	const pageTitle = $("#page-title");
+	// API には URL params 付きの full path を投げる（ListPages の @URL|... 解決に必要）。
+	// Edit / Source / History / data-path 等の表示用には clean path を使う。
+	const cleanPath = cleanPagePath(path);
 
 	try {
 		const res = await fetch(`/api/page/${path}`);
@@ -79,7 +106,7 @@ async function loadPage(path: string) {
 
 		injectStyles(data.styles);
 		initRuntime();
-		updatePageOptions(path, data);
+		updatePageOptions(cleanPath, data);
 	} catch (err) {
 		console.error("Failed to load page:", err);
 		setHtml(pageContent, "<p>ページの読み込みに失敗しました。</p>");
@@ -131,10 +158,15 @@ function updatePageOptions(path: string, page: PageResponse) {
 	// 作成者には現状以外の2つへの Toggle ボタンを出す
 	if (page.can_manage) {
 		const all: Array<"public" | "share" | "private"> = ["public", "share", "private"];
+		// can_manage は ULID 採番カテゴリのみ true なので、現 path は必ず `${category}:${ulid}`
+		const currentPath = `${page.category}:${page.unix_name}`;
 		for (const target of all) {
 			if (target === page.visibility) continue;
 			parts.push(
-				`<a href="javascript:;" data-action="toggle-visibility" data-ulid="${page.unix_name}" data-target="${target}">Make ${target}</a>`,
+				`<a href="javascript:;" data-action="toggle-visibility"` +
+					` data-ulid="${page.unix_name}" data-target="${target}"` +
+					` data-current-path="${escapeAttr(currentPath)}"` +
+					` data-current-category="${escapeAttr(page.visibility)}">Make ${target}</a>`,
 			);
 		}
 	}
@@ -254,6 +286,56 @@ function updateSidebarActions() {
 
 // --- エディタ ---
 
+// /new SSR と同じ Wikidot 互換フォーム HTML を生成する。
+// data-edit-path + data-base-rev を action-area に付けて編集モードを識別する。
+function renderEditPageForm(opts: {
+	heading: string;
+	titleValue: string;
+	sourceValue: string;
+	tagsValue: string;
+	commentValue: string;
+}): string {
+	return (
+		`<h1>${escapeHtml(opts.heading)}</h1>` +
+		`<div>` +
+		`<form id="edit-page-form" onsubmit="return false;">` +
+		`<table class="form" style="margin: 0.5em auto 1em 0">` +
+		`<tbody><tr>` +
+		`<td>Title of the page:</td>` +
+		`<td><input class="text" id="edit-page-title" name="title" type="text"` +
+		` value="${escapeAttr(opts.titleValue)}" size="35" maxlength="128"` +
+		` style="font-weight: bold; font-size: 130%;" /></td>` +
+		`</tr></tbody>` +
+		`</table>` +
+		`<div>` +
+		`<textarea id="edit-page-textarea" name="source" rows="20" cols="60" style="width: 95%;">` +
+		`${escapeHtml(opts.sourceValue)}</textarea>` +
+		`</div>` +
+		`<div class="edit-help-34">` +
+		`Help: <a href="http://www.wikidot.com/doc:quick-reference" target="_blank" rel="noopener">wiki text quick reference</a>` +
+		`</div>` +
+		`<table class="edit-page-bottomtable" style="padding: 2px 0; border: none;">` +
+		`<tbody><tr>` +
+		`<td style="border: none; padding: 0 5px;">` +
+		`<div>Tags (comma separated):<br />` +
+		`<input type="text" id="edit-page-tags" name="tags" value="${escapeAttr(opts.tagsValue)}" />` +
+		`</div>` +
+		`<div style="margin-top: 0.5em;">Short description of changes:<br />` +
+		`<textarea id="edit-page-comments" name="comments" rows="2" cols="40">${escapeHtml(opts.commentValue)}</textarea>` +
+		`</div>` +
+		`</td>` +
+		`</tr></tbody>` +
+		`</table>` +
+		`<div class="buttons alignleft">` +
+		`<a href="javascript:;" class="btn btn-danger" id="edit-cancel-button">Cancel</a> ` +
+		`<input type="button" id="edit-preview-button" class="btn btn-default" value="Preview" /> ` +
+		`<input type="button" id="edit-save-button" class="btn btn-primary" value="Save" />` +
+		`</div>` +
+		`</form>` +
+		`</div>`
+	);
+}
+
 async function showEditor(path: string) {
 	const actionArea = $("#action-area");
 	if (!actionArea) return;
@@ -277,86 +359,24 @@ async function showEditor(path: string) {
 		revisionCount = data.revision_count;
 	}
 
+	// /new と同じハンドラ群を再利用するため、 action-area に data-edit-path を付与
+	actionArea.style.display = "block";
+	actionArea.dataset.editPath = path;
+	actionArea.dataset.baseRev = revisionCount === null ? "" : String(revisionCount);
+	delete actionArea.dataset.newType;
+
 	setHtml(
 		actionArea,
-		`<div id="edit-page-form">
-			<div class="edit-field">
-				<label for="edit-title">Title</label>
-				<input type="text" id="edit-title" value="${escapeAttr(title)}" />
-			</div>
-			<div class="edit-field">
-				<label for="edit-source">Page Source</label>
-				<textarea id="edit-source" rows="20">${escapeHtml(source)}</textarea>
-			</div>
-			<div class="edit-field">
-				<label for="edit-tags">Tags (comma separated)</label>
-				<input type="text" id="edit-tags" value="${escapeAttr(tags.join(", "))}" />
-			</div>
-			<div class="edit-field">
-				<label for="edit-comment">Comment</label>
-				<input type="text" id="edit-comment" value="" />
-			</div>
-			<div class="edit-actions">
-				<button id="btn-save" data-path="${path}" data-rev="${revisionCount}">Save</button>
-				<button id="btn-preview-edit">Preview</button>
-				<button id="btn-cancel-edit">Cancel</button>
-			</div>
-		</div>`,
+		renderEditPageForm({
+			heading: `Edit page: ${path}`,
+			titleValue: title,
+			sourceValue: source,
+			tagsValue: tags.join(", "),
+			commentValue: "",
+		}),
 	);
 
-	// Save
-	$("#btn-save")?.addEventListener("click", async () => {
-		const btn = $("#btn-save") as HTMLElement;
-		const p = btn.dataset.path!;
-		const rev = btn.dataset.rev;
-		const body = {
-			title: ($("#edit-title") as HTMLInputElement).value,
-			source: ($("#edit-source") as HTMLTextAreaElement).value,
-			tags: ($("#edit-tags") as HTMLInputElement).value
-				.split(",")
-				.map((t: string) => t.trim())
-				.filter(Boolean),
-			comment: ($("#edit-comment") as HTMLInputElement).value,
-			base_revision_number: rev !== "null" ? Number(rev) : null,
-		};
-
-		const saveRes = await fetch(`/api/page/${p}`, {
-			method: "PUT",
-			headers: { "Content-Type": "application/json", Origin: window.location.origin },
-			body: JSON.stringify(body),
-		});
-
-		if (saveRes.ok) {
-			setHtml(actionArea, "");
-			loadPage(p);
-		} else {
-			const err = (await saveRes.json()) as { error: string };
-			window.alert(`Save failed: ${err.error}`);
-		}
-	});
-
-	// Preview: 結果を #page-title / #page-content に直接反映する
-	$("#btn-preview-edit")?.addEventListener("click", async () => {
-		const src = ($("#edit-source") as HTMLTextAreaElement).value;
-		const title = ($("#edit-title") as HTMLInputElement).value;
-		const previewRes = await fetch("/api/preview", {
-			method: "POST",
-			headers: { "Content-Type": "application/json", Origin: window.location.origin },
-			body: JSON.stringify({ source: src }),
-		});
-		if (previewRes.ok) {
-			const data = (await previewRes.json()) as { html: string; styles: string[] };
-			injectStyles(data.styles);
-			setHtml($("#page-title"), title ? `<span>${escapeHtml(title)}</span>` : "");
-			setHtml($("#page-content"), data.html);
-			initRuntime();
-		}
-	});
-
-	// Cancel
-	$("#btn-cancel-edit")?.addEventListener("click", () => {
-		setHtml(actionArea, "");
-	});
+	setupPageForm();
 }
 
 // --- ソース表示 ---
@@ -618,11 +638,21 @@ function setupEventHandlers() {
 					| "share"
 					| "private"
 					| undefined;
+				const currentPath = actionAnchor.dataset.currentPath ?? "";
+				const currentCategory = actionAnchor.dataset.currentCategory as
+					| "public"
+					| "share"
+					| "private"
+					| undefined;
 				if (
 					ulid &&
+					currentPath &&
+					(currentCategory === "public" ||
+						currentCategory === "share" ||
+						currentCategory === "private") &&
 					(toggleTarget === "public" || toggleTarget === "share" || toggleTarget === "private")
 				) {
-					await toggleVisibility(ulid, toggleTarget, false);
+					showRenameConfirmation(ulid, currentPath, currentCategory, toggleTarget);
 				}
 				return;
 			}
@@ -664,13 +694,14 @@ function setupEventHandlers() {
 
 async function toggleVisibility(
 	ulid: string,
+	expectedCategory: "public" | "share" | "private",
 	target: "public" | "share" | "private",
 	force: boolean,
 ): Promise<void> {
 	const res = await fetch(`/api/page/${ulid}/visibility`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json", Origin: window.location.origin },
-		body: JSON.stringify({ target, force }),
+		body: JSON.stringify({ target, expected_category: expectedCategory, force }),
 	});
 
 	if (res.ok) {
@@ -682,15 +713,45 @@ async function toggleVisibility(
 
 	if (res.status === 409) {
 		const data = (await res.json()) as {
-			referenced_by: ReferencedBy[];
-			hidden_referenced_count: number;
+			referenced_by?: ReferencedBy[];
+			hidden_referenced_count?: number;
 			include_becomes_broken?: boolean;
 			list_pages_presence_changes?: boolean;
+			actual_category?: string;
+			error?: string;
 		};
-		showReferenceWarning(ulid, target, data.referenced_by, data.hidden_referenced_count, {
-			includeBecomesBroken: data.include_becomes_broken ?? false,
-			listPagesPresenceChanges: data.list_pages_presence_changes ?? false,
-		});
+		// expected_category 不一致は別 user/tab で先に切り替わった等のレース。
+		// クライアントの現値表示と DB が乖離しているので alert + reload を促す。
+		if (data.actual_category) {
+			window.alert(
+				`${data.error ?? "Visibility changed elsewhere"} (current: ${data.actual_category})`,
+			);
+			window.location.reload();
+			return;
+		}
+		// 参照警告レスポンスのみ showReferenceWarning に流す。
+		// それ以外の 409（並行 UPDATE による revisionCount 競合等）は専用ハンドリング。
+		const isReferenceWarning =
+			Array.isArray(data.referenced_by) ||
+			typeof data.hidden_referenced_count === "number" ||
+			data.include_becomes_broken === true ||
+			data.list_pages_presence_changes === true;
+		if (!isReferenceWarning) {
+			window.alert(`${data.error ?? "Conflict"}. Reload and try again.`);
+			window.location.reload();
+			return;
+		}
+		showReferenceWarning(
+			ulid,
+			expectedCategory,
+			target,
+			data.referenced_by ?? [],
+			data.hidden_referenced_count ?? 0,
+			{
+				includeBecomesBroken: data.include_becomes_broken ?? false,
+				listPagesPresenceChanges: data.list_pages_presence_changes ?? false,
+			},
+		);
 		return;
 	}
 
@@ -700,15 +761,104 @@ async function toggleVisibility(
 	window.alert(`Toggle failed: ${err.error ?? "unknown error"}`);
 }
 
+// 現 path を打ち込ませる rename 確認モーダル。
+// スマホ等で ULID を手打ちするのは現実的でないため copy ボタンを併設する。
+// 入力が完全一致したら Confirm が有効化され、 toggleVisibility に進む。
+function showRenameConfirmation(
+	ulid: string,
+	currentPath: string,
+	currentCategory: "public" | "share" | "private",
+	target: "public" | "share" | "private",
+): void {
+	document.getElementById("rename-confirm-modal")?.remove();
+
+	const newPath = `${target}:${ulid}`;
+	const modal = document.createElement("div");
+	modal.id = "rename-confirm-modal";
+	modal.setAttribute("role", "dialog");
+	modal.setAttribute("aria-modal", "true");
+	modal.style.cssText =
+		"position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);" +
+		"z-index:1000;display:flex;align-items:center;justify-content:center;padding:1em;";
+	modal.innerHTML =
+		`<div style="background:#fff;padding:1.5em;max-width:560px;width:100%;` +
+		`max-height:90vh;overflow:auto;border-radius:4px;">` +
+		`<h3 style="margin-top:0;">Rename to make ${escapeHtml(target)}</h3>` +
+		`<p>This page will move from` +
+		` <code>${escapeHtml(currentPath)}</code> to <code>${escapeHtml(newPath)}</code>.</p>` +
+		`<p>To confirm, paste or type the current path below.</p>` +
+		`<div style="display:flex;align-items:center;gap:0.5em;margin:0.5em 0;flex-wrap:wrap;">` +
+		`<code class="rename-current-path"` +
+		` style="background:#f4f4f4;padding:0.4em 0.6em;border-radius:3px;` +
+		`font-size:0.95em;word-break:break-all;flex:1 1 auto;">` +
+		`${escapeHtml(currentPath)}</code>` +
+		`<button type="button" class="btn-rename-copy btn btn-default" style="flex:0 0 auto;">` +
+		`Copy</button>` +
+		`</div>` +
+		`<input type="text" class="rename-confirm-input"` +
+		` placeholder="${escapeAttr(currentPath)}"` +
+		` autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"` +
+		` style="width:100%;box-sizing:border-box;padding:0.5em;font-family:monospace;` +
+		`font-size:1em;margin-top:0.25em;" />` +
+		`<p class="rename-confirm-hint" style="font-size:0.85em;color:#888;margin:0.4em 0 0;">` +
+		`Confirm becomes active when the input matches the current path.</p>` +
+		`<div style="margin-top:1em;display:flex;gap:0.5em;justify-content:flex-end;flex-wrap:wrap;">` +
+		`<button type="button" class="btn-rename-cancel btn btn-default">Cancel</button>` +
+		`<button type="button" class="btn-rename-confirm btn btn-primary" disabled>` +
+		`Make ${escapeHtml(target)}</button>` +
+		`</div>` +
+		`</div>`;
+	document.body.appendChild(modal);
+
+	// モーダル内要素は modal にスコープして取得（DOM clobbering / ID 衝突回避）
+	const input = modal.querySelector<HTMLInputElement>(".rename-confirm-input");
+	const confirmBtn = modal.querySelector<HTMLButtonElement>(".btn-rename-confirm");
+	const copyBtn = modal.querySelector<HTMLButtonElement>(".btn-rename-copy");
+	const cancelBtn = modal.querySelector<HTMLButtonElement>(".btn-rename-cancel");
+
+	const updateState = () => {
+		if (!input || !confirmBtn) return;
+		confirmBtn.disabled = input.value.trim() !== currentPath;
+	};
+	input?.addEventListener("input", updateState);
+	input?.focus();
+
+	copyBtn?.addEventListener("click", async () => {
+		try {
+			await navigator.clipboard.writeText(currentPath);
+			const original = copyBtn.textContent ?? "Copy";
+			copyBtn.textContent = "Copied";
+			window.setTimeout(() => {
+				copyBtn.textContent = original;
+			}, 1500);
+		} catch {
+			// clipboard 権限がない環境向けフォールバック: input に流し込む
+			if (input) {
+				input.value = currentPath;
+				updateState();
+				input.focus();
+			}
+		}
+	});
+
+	cancelBtn?.addEventListener("click", () => modal.remove());
+	confirmBtn?.addEventListener("click", async () => {
+		if (confirmBtn.disabled) return;
+		modal.remove();
+		await toggleVisibility(ulid, currentCategory, target, false);
+	});
+}
+
 function showReferenceWarning(
 	ulid: string,
+	expectedCategory: "public" | "share" | "private",
 	target: "public" | "share" | "private",
 	visible: ReferencedBy[],
 	hiddenCount: number,
 	impact: { includeBecomesBroken: boolean; listPagesPresenceChanges: boolean },
 ): void {
 	// 既存モーダルがあれば消す
-	$("#visibility-confirm-modal")?.remove();
+	document.getElementById("visibility-confirm-modal")?.remove();
 
 	const list = visible
 		.map((p) => {
@@ -753,47 +903,88 @@ function showReferenceWarning(
 		visibleSection +
 		hiddenLine +
 		`<div style="margin-top:1em;display:flex;gap:0.5em;justify-content:flex-end;">` +
-		`<button id="btn-toggle-cancel">Cancel</button>` +
-		`<button id="btn-toggle-force">Force ${escapeHtml(target)}</button>` +
+		`<button type="button" class="btn-toggle-cancel">Cancel</button>` +
+		`<button type="button" class="btn-toggle-force">Force ${escapeHtml(target)}</button>` +
 		`</div></div>`;
 	document.body.appendChild(modal);
 
-	$("#btn-toggle-cancel")?.addEventListener("click", () => modal.remove());
-	$("#btn-toggle-force")?.addEventListener("click", async () => {
-		modal.remove();
-		await toggleVisibility(ulid, target, true);
-	});
+	modal
+		.querySelector<HTMLButtonElement>(".btn-toggle-cancel")
+		?.addEventListener("click", () => modal.remove());
+	modal
+		.querySelector<HTMLButtonElement>(".btn-toggle-force")
+		?.addEventListener("click", async () => {
+			modal.remove();
+			await toggleVisibility(ulid, expectedCategory, target, true);
+		});
 }
 
-// --- 新規ページ作成フォーム（/new SSR） ---
+// --- 新規/編集ページフォーム共通ハンドラ ---
 
-function setupNewPageForm() {
-	// /new SSR では action-area に data-new-type が付く（Wikidot互換構造）
+function readPageFormBody(): {
+	title: string;
+	source: string;
+	tags: string[];
+	comment: string;
+} {
+	return {
+		title: ($("#edit-page-title") as HTMLInputElement).value,
+		source: ($("#edit-page-textarea") as HTMLTextAreaElement).value,
+		tags: ($("#edit-page-tags") as HTMLInputElement).value
+			.split(",")
+			.map((t) => t.trim())
+			.filter(Boolean),
+		comment: ($("#edit-page-comments") as HTMLTextAreaElement).value,
+	};
+}
+
+function setupPageForm() {
+	// action-area の data-new-type / data-edit-path でモード判定
 	const area = $("#action-area");
-	const type = area?.dataset.newType;
-	if (type !== "public" && type !== "share" && type !== "private") return;
+	if (!area) return;
+	const newType = area.dataset.newType;
+	const editPath = area.dataset.editPath;
+	const baseRevRaw = area.dataset.baseRev;
+	const isNew = newType === "public" || newType === "share" || newType === "private";
+	const isEdit = typeof editPath === "string" && editPath.length > 0;
+	if (!isNew && !isEdit) return;
 
 	$("#edit-save-button")?.addEventListener("click", async () => {
-		const body = {
-			type,
-			title: ($("#edit-page-title") as HTMLInputElement).value,
-			source: ($("#edit-page-textarea") as HTMLTextAreaElement).value,
-			tags: ($("#edit-page-tags") as HTMLInputElement).value
-				.split(",")
-				.map((t: string) => t.trim())
-				.filter(Boolean),
-			comment: ($("#edit-page-comments") as HTMLTextAreaElement).value,
-		};
+		const body = readPageFormBody();
 
-		const res = await fetch("/api/page/new", {
-			method: "POST",
+		if (isNew) {
+			const res = await fetch("/api/page/new", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Origin: window.location.origin },
+				body: JSON.stringify({ type: newType, ...body }),
+			});
+			if (res.ok) {
+				const data = (await res.json()) as { path: string };
+				window.location.href = `/${data.path}`;
+			} else {
+				const err = (await res.json().catch(() => ({ error: `HTTP ${res.status}` }))) as {
+					error?: string;
+				};
+				window.alert(`Save failed: ${err.error ?? "unknown error"}`);
+			}
+			return;
+		}
+
+		// edit モード
+		const baseRev = baseRevRaw && baseRevRaw.length > 0 ? Number(baseRevRaw) : null;
+		const res = await fetch(`/api/page/${editPath}`, {
+			method: "PUT",
 			headers: { "Content-Type": "application/json", Origin: window.location.origin },
-			body: JSON.stringify(body),
+			body: JSON.stringify({ ...body, base_revision_number: baseRev }),
 		});
-
 		if (res.ok) {
-			const data = (await res.json()) as { path: string };
-			window.location.href = `/${data.path}`;
+			setHtml(area, "");
+			area.removeAttribute("data-edit-path");
+			area.removeAttribute("data-base-rev");
+			area.style.display = "";
+			// 保存後は現在の URL（ListPages の URL params を含む）で再描画する
+			const reloadPath = window.location.pathname.slice(1) || (editPath as string);
+			loadPage(reloadPath);
 		} else {
 			const err = (await res.json().catch(() => ({ error: `HTTP ${res.status}` }))) as {
 				error?: string;
@@ -818,6 +1009,19 @@ function setupNewPageForm() {
 			initRuntime();
 		}
 	});
+
+	// Cancel: edit モードでは action-area を閉じてページに戻る。 new モードでは / へ。
+	$("#edit-cancel-button")?.addEventListener("click", (e) => {
+		if (isEdit) {
+			e.preventDefault();
+			setHtml(area, "");
+			area.removeAttribute("data-edit-path");
+			area.removeAttribute("data-base-rev");
+			area.style.display = "";
+			return;
+		}
+		// new モードは <a href="/"> のデフォルト遷移に任せる
+	});
 }
 
 // --- 初期化 ---
@@ -829,7 +1033,7 @@ async function init() {
 	// /new SSR画面（action-area に data-new-type）が居る場合はフォーム起動して終了
 	const newArea = $("#action-area");
 	if (newArea?.dataset.newType) {
-		setupNewPageForm();
+		setupPageForm();
 		return;
 	}
 
@@ -845,10 +1049,12 @@ async function init() {
 		const path = getPagePathFromUrl();
 		if (path) {
 			try {
+				// API には URL params 付きの full path（ListPages 解決のため）。
+				// 表示用 data-path 等には clean path を使う。
 				const res = await fetch(`/api/page/${path}`);
 				if (res.ok) {
 					const data: PageResponse = await res.json();
-					updatePageOptions(path, data);
+					updatePageOptions(cleanPagePath(path), data);
 				} else {
 					clearPageOptions();
 				}
