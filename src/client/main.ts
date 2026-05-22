@@ -273,14 +273,22 @@ function updateSidebarActions() {
 	if (currentUser?.authenticated) {
 		setHtml(
 			actions,
-			`<p>` +
-				`<a href="/new?type=public">+ New public page</a><br />` +
-				`<a href="/new?type=share">+ New share page</a><br />` +
-				`<a href="/new?type=private">+ New private page</a>` +
-				`</p>`,
+			`<div class="side-block">` +
+				`<div class="heading"><p>New page</p></div>` +
+				`<div class="menu-item"><a href="/new?type=public">+ Public</a></div>` +
+				`<div class="menu-item"><a href="/new?type=share">+ Share</a></div>` +
+				`<div class="menu-item"><a href="/new?type=private">+ Private</a></div>` +
+				`</div>`,
 		);
 	} else {
-		setHtml(actions, "");
+		// 未ログイン時もサイドバーは Wikidot side-block 構造で揃え、 Sign in リンクを出す。
+		setHtml(
+			actions,
+			`<div class="side-block">` +
+				`<div class="heading"><p>Account</p></div>` +
+				`<div class="menu-item"><a href="/auth/login">Sign in / Create account</a></div>` +
+				`</div>`,
+		);
 	}
 }
 
@@ -520,6 +528,8 @@ async function showHistory(path: string) {
 		comment: string;
 		createdAt: string;
 		createdBy: number | null;
+		createdByName: string | null;
+		createdByUnixName: string | null;
 	};
 	const data = (await res.json()) as { revisions: Revision[] };
 	const sorted = data.revisions.sort((a, b) => b.revisionNumber - a.revisionNumber);
@@ -533,6 +543,12 @@ async function showHistory(path: string) {
 						day: "numeric",
 					})
 				: "";
+			// by 列は username (printuser)、 fallback で createdBy id か空文字。
+			const userDisplay = r.createdByName
+				? `<span class="printuser">${escapeHtml(r.createdByName)}</span>`
+				: r.createdBy !== null
+					? `user #${r.createdBy}`
+					: "";
 			return (
 				`<tr id="revision-row-${r.revisionNumber}">` +
 				`<td>${r.revisionNumber}.</td>` +
@@ -542,7 +558,7 @@ async function showHistory(path: string) {
 				`<a title="" href="javascript:;" data-action="view-revision" data-path="${path}" data-rev="${r.revisionNumber}">V</a> ` +
 				`<a title="" href="javascript:;" data-action="source-revision" data-path="${path}" data-rev="${r.revisionNumber}">S</a>` +
 				`</td>` +
-				`<td style="width: 15em">${r.createdBy ?? ""}</td>` +
+				`<td style="width: 15em">${userDisplay}</td>` +
 				`<td style="padding: 0 0.5em; width: 7em;">${date}</td>` +
 				`<td style="font-size: 90%">${escapeHtml(r.comment ?? "")}</td>` +
 				`</tr>`

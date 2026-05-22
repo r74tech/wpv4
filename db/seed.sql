@@ -42,8 +42,22 @@ public / share / private は ULID 不変で相互に切り替え可能 (URL の 
 * **public ↔ share**: ListPages 掲載状況が変わる (public のみ ListPages 掲載)
 
 警告ダイアログで Force すれば強行できます。', 0),
-('nav', 'side', 'Side Navigation', '* [[[main|Home]]]', 0),
-('nav', 'top', 'Top Navigation', '* [[[main|Home]]]', 0);
+('nav', 'side', 'Side Navigation', '[[div class="side-block"]]
+[[div class="heading"]]
+Menu
+[[/div]]
+[[div class="menu-item"]]
+[[[main|Home]]][[/div]]
+[[/div]]
+
+[[a href="##" class="close-menu"]]
+[[image https://scp-jp.github.io/files/util/common/media/nav/side/black.png style="z-index:-1; opacity: 0.3;"]]
+[[/a]]', 0),
+('nav', 'top', 'Top Navigation', '* [[[main|Home]]]
+[[div class="mobile-top-bar"]]
+[[div class="open-menu"]]
+[#side-bar ☰]
+[[/div]][[/div]]', 0);
 
 -- 初期リビジョン
 INSERT INTO revisions (page_id, revision_number, title, source, comment, visibility) VALUES

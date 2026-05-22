@@ -20,3 +20,7 @@
 	white-space: pre-wrap;
 	word-wrap: break-word;
 }
+
+.footnotes-footer {
+	height: unset;
+}

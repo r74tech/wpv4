@@ -475,9 +475,22 @@ api.get("/page-history/*", async (c) => {
 		return c.json({ error: "Forbidden" }, 403);
 	}
 
+	// users と JOIN して by 列に username / unix_name を出せるようにする。
 	const allRevs = await db
-		.select()
+		.select({
+			id: revisions.id,
+			pageId: revisions.pageId,
+			revisionNumber: revisions.revisionNumber,
+			title: revisions.title,
+			comment: revisions.comment,
+			visibility: revisions.visibility,
+			createdBy: revisions.createdBy,
+			createdAt: revisions.createdAt,
+			createdByName: users.name,
+			createdByUnixName: users.unixName,
+		})
 		.from(revisions)
+		.leftJoin(users, eq(users.id, revisions.createdBy))
 		.where(eq(revisions.pageId, page[0].id))
 		.orderBy(revisions.revisionNumber);
 
@@ -486,7 +499,17 @@ api.get("/page-history/*", async (c) => {
 	const isOwner = viewerId !== null && page[0].createdBy === viewerId;
 	const revs = isOwner ? allRevs : allRevs.filter((r) => r.visibility !== "private");
 
-	return c.json({ revisions: revs });
+	return c.json({
+		revisions: revs.map((r) => ({
+			revisionNumber: r.revisionNumber,
+			title: r.title,
+			comment: r.comment,
+			createdAt: r.createdAt,
+			createdBy: r.createdBy,
+			createdByName: r.createdByName,
+			createdByUnixName: r.createdByUnixName,
+		})),
+	});
 });
 
 // 特定リビジョン取得
