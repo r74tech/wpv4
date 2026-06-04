@@ -417,7 +417,13 @@ export async function renderWikitext(
 		return result[0].source;
 	});
 
-	const parseResult = parse(expanded);
+	// pageTags を parse() に渡し、[[div_ class="x" [[iftags +foo]]...[[/iftags]]]]
+	// のような opener-embedded [[iftags]] を text-level に畳む。
+	// options.tags が未指定なら null フォールバック (opener-embedded のみ空タグ
+	// 仮定で畳む)、block-level は AST resolver に委譲される。
+	const parserPageTags = options.tags ?? null;
+
+	const parseResult = parse(expanded, { pageTags: parserPageTags });
 	const ast = parseResult.ast;
 
 	const extraction = extractDataRequirements(ast);
@@ -435,7 +441,7 @@ export async function renderWikitext(
 	};
 
 	const resolveOptions: ResolveOptions = {
-		parse: (src) => parse(src).ast,
+		parse: (src) => parse(src, { pageTags: parserPageTags }).ast,
 		compiledListPagesTemplates: extraction.compiledListPagesTemplates,
 		compiledListUsersTemplates: extraction.compiledListUsersTemplates,
 		requirements: extraction.requirements,
