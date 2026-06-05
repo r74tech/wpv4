@@ -19,7 +19,7 @@
 		"@simplewebauthn/server": "^13.3.1",
 		"@wdprlib/ast": "^2.0.0",
 		"@wdprlib/decompiler": "^1.0.2",
-		"@wdprlib/parser": "3.1.0",
+		"@wdprlib/parser": "3.1.1",
 		"@wdprlib/render": "^2.0.0",
 		"@wdprlib/runtime": "^1.0.3",
 		"drizzle-orm": "^0.45.2",
