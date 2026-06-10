@@ -10,7 +10,7 @@
         "@simplewebauthn/server": "^13.3.1",
         "@wdprlib/ast": "^2.0.0",
         "@wdprlib/decompiler": "^1.0.2",
-        "@wdprlib/parser": "3.1.1",
+        "@wdprlib/parser": "3.1.2",
         "@wdprlib/render": "^2.0.0",
         "@wdprlib/runtime": "^1.0.3",
         "drizzle-orm": "^0.45.2",
@@ -339,7 +339,7 @@
 
     "@wdprlib/decompiler": ["@wdprlib/decompiler@1.0.3", "", { "dependencies": { "@wdprlib/ast": "2.0.0", "domhandler": "^5.0.3", "htmlparser2": "^10.0.0" } }, "sha512-fcQDBlJN2CCKTuU9wVvH1IVa9KHUpUyct1skk/wVpEEFIa7qZVG0q810krVn06L9BIJ717jkS9i186OAo4xEcQ=="],
 
-    "@wdprlib/parser": ["@wdprlib/parser@3.1.1", "", { "dependencies": { "@braintree/sanitize-url": "^7.1.1", "@wdprlib/ast": "2.0.0" } }, "sha512-TUnHpTslRNLhi9bRRCVoiF+Cplidak+ozB+dp8kIC8em/HQ7uqEtNeRN4xrwSDp/UO8O1x6FyjVWjzsg/pBz6w=="],
+    "@wdprlib/parser": ["@wdprlib/parser@3.1.2", "", { "dependencies": { "@braintree/sanitize-url": "^7.1.1", "@wdprlib/ast": "2.0.0" } }, "sha512-OqsgKn/f8PZaM+GJtFdYfKBJMX8lIS6p/cw3xQidv56K37dro5oMPv7E9g5CrTtWTERydnFKk2bIPGANZQH3NQ=="],
 
     "@wdprlib/render": ["@wdprlib/render@2.0.0", "", { "dependencies": { "@wdprlib/ast": "2.0.0", "domhandler": "^5.0.3", "htmlparser2": "^10.0.0", "sanitize-html": "^2.14.0", "temml": "^0.13.1" } }, "sha512-0hek25YVUvZEScusu8p5zcHXz7UgM220CXqLZZFitS+tot0yPssqgaIxq242R6Rr/zkDaNj0s91Alg0OzmDS2Q=="],
 
