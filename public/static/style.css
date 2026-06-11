@@ -24,3 +24,33 @@
 .footnotes-footer {
 	height: unset;
 }
+
+/*
+ * Wikidot 互換: scp-image-block 配下の <img> を block 化する。
+ *
+ * Wikidot 本家は XHTML 1.0 Transitional doctype を出すため Chrome が
+ * Almost Standards Mode (LimitedQuirks) で描画され、単独 <img> の line box に
+ * font descender を加算しない挙動になる。wpv4 は HTML5 doctype (NoQuirks) で
+ * strict に descender を計算するため、image-block 系で <img> と caption の間に
+ * 2.5〜3px の隙間が出る。
+ *
+ * `display: block` を当てると inline line box 自体が形成されず baseline
+ * descender 計算が不要になるため、doctype モード差を実害なく無効化できる。
+ * 本文中の inline 画像や `.image-container.aligncenter/alignright` 系の
+ * text-align ベース配置、image-block 内 caption に置かれた小アイコン等を
+ * 壊さないため、main image path (直下 <img.image> / <a><img.image></a> および
+ * parser 暫定の <p> 経由の同パターン) に限定する。
+ *
+ * 同時に、@wdprlib/parser が [[div]] 内の [[image]] を余計な <p> で wrap する
+ * バグ (wdpr issue: critical-parser-image-block内の[[image]]が余計な<p>でラップされる)
+ * の影響も同時に隠蔽できる。暫定 <p> 自体の margin は sigma.css の
+ * `.scp-image-block > p { margin: 0 }` で 0 に潰されているため、img を block 化
+ * すれば <p> 経由でも gap は 0 になる (実機検証済)。parser 側修正後も Wikidot の
+ * Almost Standards 挙動代替として残す価値がある。
+ */
+#page-content .scp-image-block > img.image,
+#page-content .scp-image-block > a > img.image,
+#page-content .scp-image-block > p > img.image,
+#page-content .scp-image-block > p > a > img.image {
+	display: block;
+}
