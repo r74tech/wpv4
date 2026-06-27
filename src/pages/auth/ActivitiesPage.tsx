@@ -23,7 +23,7 @@ type Props = {
 
 export const ActivitiesPage: FC<Props> = ({ revisions, pagination, search }) => {
 	const { page, totalCount, totalPages } = pagination;
-	const baseUrl = "/auth/activities";
+	const baseUrl = "/user/activities";
 
 	const pageLink = (p: number, extra?: string) => {
 		const params = new URLSearchParams();
