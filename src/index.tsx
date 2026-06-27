@@ -25,6 +25,19 @@ app.route("/api/passkeys", passkeyApi);
 app.route("/auth", auth);
 app.route("/user", user);
 
+function PageTags({ tags }: { tags: string[] }) {
+	if (tags.length === 0) return null;
+	return (
+		<div class="page-tags">
+			<span>
+				{tags.map((tag) => (
+					<a href={`/system:page-tags/tag/${encodeURIComponent(tag)}#pages`}>{tag}</a>
+				))}
+			</span>
+		</div>
+	);
+}
+
 // /new: 新規ページ作成画面（app.get("*") より前に登録）
 app.get("/new", async (c) => {
 	const type = c.req.query("type");
@@ -89,7 +102,7 @@ app.get("/new", async (c) => {
 								<tr>
 									<td style="border: none; padding: 0 5px;">
 										<div>
-											Tags (comma separated):
+											Tags (space separated):
 											<br />
 											<input type="text" id="edit-page-tags" name="tags" value="" />
 										</div>
@@ -185,11 +198,12 @@ app.get("*", async (c) => {
 		.select({ tag: pageTags.tag })
 		.from(pageTags)
 		.where(eq(pageTags.pageId, page.id));
+	const tagNames = tags.map((t) => t.tag);
 
 	const result = await renderWikitext(page.source, c.env, {
 		pageName: unixName,
 		category,
-		tags: tags.map((t) => t.tag),
+		tags: tagNames,
 		viewerId,
 		existingPages,
 		urlPath: c.req.path,
@@ -201,6 +215,7 @@ app.get("*", async (c) => {
 				<span>{page.title}</span>
 			</div>
 			<div id="page-content">{raw(result.html)}</div>
+			<PageTags tags={tagNames} />
 		</WikidotShell>,
 	);
 });

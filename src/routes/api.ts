@@ -42,6 +42,12 @@ function parseAndNormalize(pagePath: string): [string, string] {
 	return [category, unixName];
 }
 
+function normalizeTags(tags: string[]): string[] {
+	return Array.from(
+		new Set(tags.flatMap((tag) => tag.split(/[\s,]+/)).map((tag) => tag.trim()).filter(Boolean)),
+	);
+}
+
 // ページ取得（レンダリング済みHTML）
 api.get("/page/*", async (c) => {
 	const pagePath = c.req.path.replace("/api/page/", "");
@@ -66,11 +72,12 @@ api.get("/page/*", async (c) => {
 		.select({ tag: pageTags.tag })
 		.from(pageTags)
 		.where(eq(pageTags.pageId, page[0].id));
+	const tagNames = tags.map((t) => t.tag);
 
 	const result = await renderWikitext(page[0].source, c.env, {
 		pageName: unixName,
 		category,
-		tags: tags.map((t) => t.tag),
+		tags: tagNames,
 		viewerId,
 		// SPA から /api/page/<page-path>/offset/1/... の形で呼ばれる。
 		// pagePath はその全体（category:name + URL params）なので `/` を付けて渡す。
@@ -78,20 +85,15 @@ api.get("/page/*", async (c) => {
 	});
 
 	return c.json({
-		page_id: page[0].id,
 		category,
 		unix_name: unixName,
 		title: page[0].title,
 		html: result.html,
 		styles: result.styles,
-		revision_count: page[0].revisionCount,
-		updated_at: page[0].updatedAt,
+		tags: tagNames,
 		visibility: getVisibility(page[0].category, page[0].unixName),
-		viewer_is_owner: viewerId !== null && page[0].createdBy === viewerId,
 		can_edit: canEditPage(page[0], viewerId),
 		can_manage: canManagePage(page[0], viewerId),
-		created_by: page[0].createdBy,
-		is_locked: page[0].isLocked === 1,
 	});
 });
 
@@ -147,8 +149,7 @@ api.post("/page/new", requireAuth, zValidator("json", newPageSchema), async (c) 
 		return c.json({ error: "Internal: invalid identifier" }, 500);
 	}
 
-	// タグ重複除去（UI dedupeに頼らない、UNIQUE(page_id,tag) 違反を未然に防ぐ）
-	const uniqueTags = Array.from(new Set(body.tags.map((t) => t.trim()).filter(Boolean)));
+	const uniqueTags = normalizeTags(body.tags);
 
 	const result = await db
 		.insert(pages)
@@ -185,7 +186,7 @@ api.post("/page/new", requireAuth, zValidator("json", newPageSchema), async (c) 
 	const rendered = await renderWikitext(body.source, c.env, {
 		pageName: ulid,
 		category: body.type,
-		tags: body.tags,
+		tags: uniqueTags,
 		viewerId: user.id,
 		persistHtmlBlocks: true,
 	});
@@ -234,7 +235,7 @@ api.put("/page/*", requireAuth, zValidator("json", updatePageSchema), async (c) 
 	}
 
 	const newRevisionNumber = (page.revisionCount ?? 0) + 1;
-	const uniqueTags = Array.from(new Set(body.tags.map((t) => t.trim()).filter(Boolean)));
+	const uniqueTags = normalizeTags(body.tags);
 
 	// UPDATE は category と revisionCount を WHERE 条件に含め、競合（toggle/同時編集）を検出する
 	const updateResult = await db
@@ -278,7 +279,7 @@ api.put("/page/*", requireAuth, zValidator("json", updatePageSchema), async (c) 
 	const rendered = await renderWikitext(body.source, c.env, {
 		pageName: unixName,
 		category,
-		tags: body.tags,
+		tags: uniqueTags,
 		viewerId: user.id,
 		persistHtmlBlocks: true,
 	});

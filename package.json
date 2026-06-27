@@ -11,7 +11,9 @@
 		"format": "oxfmt src/",
 		"typecheck": "tsc --noEmit",
 		"db:generate": "drizzle-kit generate",
-		"db:migrate": "wrangler d1 migrations apply wpv4-db --local"
+		"db:migrate": "wrangler d1 migrations apply DB --local",
+		"db:migrate:staging": "wrangler d1 migrations apply DB --env staging --remote",
+		"db:migrate:production": "wrangler d1 migrations apply DB --env production --remote"
 	},
 	"dependencies": {
 		"@hono/zod-validator": "^0.7.6",

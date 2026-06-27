@@ -4,20 +4,15 @@ import type { WdprRuntime } from "@wdprlib/runtime";
 // --- 型定義 ---
 
 type PageResponse = {
-	page_id: number;
 	category: string;
 	unix_name: string;
 	title: string;
 	html: string;
 	styles: string[];
-	revision_count: number;
-	updated_at: string;
+	tags: string[];
 	visibility: "public" | "share" | "private";
-	viewer_is_owner: boolean;
 	can_edit: boolean;
 	can_manage: boolean;
-	created_by: number | null;
-	is_locked: boolean;
 };
 
 type ReferencedBy = {
@@ -90,9 +85,11 @@ async function loadPage(path: string) {
 			if (res.status === 404) {
 				setHtml(pageContent, "<p>ページが見つかりません。</p>");
 				setHtml(pageTitle, "");
+				updatePageTags([]);
 			} else if (res.status === 403) {
 				setHtml(pageContent, "<p>This page is private.</p>");
 				setHtml(pageTitle, "<span>Forbidden</span>");
+				updatePageTags([]);
 			} else {
 				throw new Error(`HTTP ${res.status}`);
 			}
@@ -103,6 +100,7 @@ async function loadPage(path: string) {
 		const data: PageResponse = await res.json();
 		setHtml(pageTitle, `<span>${escapeHtml(data.title)}</span>`);
 		setHtml(pageContent, data.html);
+		updatePageTags(data.tags);
 
 		injectStyles(data.styles);
 		initRuntime();
@@ -110,6 +108,7 @@ async function loadPage(path: string) {
 	} catch (err) {
 		console.error("Failed to load page:", err);
 		setHtml(pageContent, "<p>ページの読み込みに失敗しました。</p>");
+		updatePageTags([]);
 		clearPageOptions();
 	}
 }
@@ -172,6 +171,27 @@ function updatePageOptions(path: string, page: PageResponse) {
 	}
 
 	setHtml(options, parts.join(""));
+}
+
+function renderPageTags(tags: string[]): string {
+	if (tags.length === 0) return "";
+	return (
+		`<div class="page-tags"><span>` +
+		tags
+			.map(
+				(tag) =>
+					`<a href="/system:page-tags/tag/${encodeURIComponent(tag)}#pages">${escapeHtml(tag)}</a>`,
+			)
+			.join("") +
+		`</span></div>`
+	);
+}
+
+function updatePageTags(tags: string[]) {
+	const existing = document.querySelector("#main-content > .page-tags");
+	existing?.remove();
+	if (tags.length === 0) return;
+	$("#page-content")?.insertAdjacentHTML("afterend", renderPageTags(tags));
 }
 
 // --- ナビゲーション ---
@@ -325,7 +345,7 @@ function renderEditPageForm(opts: {
 		`<table class="edit-page-bottomtable" style="padding: 2px 0; border: none;">` +
 		`<tbody><tr>` +
 		`<td style="border: none; padding: 0 5px;">` +
-		`<div>Tags (comma separated):<br />` +
+		`<div>Tags (space separated):<br />` +
 		`<input type="text" id="edit-page-tags" name="tags" value="${escapeAttr(opts.tagsValue)}" />` +
 		`</div>` +
 		`<div style="margin-top: 0.5em;">Short description of changes:<br />` +
@@ -379,7 +399,7 @@ async function showEditor(path: string) {
 			heading: `Edit page: ${path}`,
 			titleValue: title,
 			sourceValue: source,
-			tagsValue: tags.join(", "),
+			tagsValue: tags.join(" "),
 			commentValue: "",
 		}),
 	);
@@ -947,7 +967,7 @@ function readPageFormBody(): {
 		title: ($("#edit-page-title") as HTMLInputElement).value,
 		source: ($("#edit-page-textarea") as HTMLTextAreaElement).value,
 		tags: ($("#edit-page-tags") as HTMLInputElement).value
-			.split(",")
+			.split(/[\s,]+/)
 			.map((t) => t.trim())
 			.filter(Boolean),
 		comment: ($("#edit-page-comments") as HTMLTextAreaElement).value,
@@ -1022,6 +1042,7 @@ function setupPageForm() {
 			injectStyles(data.styles);
 			setHtml($("#page-title"), title ? `<span>${escapeHtml(title)}</span>` : "");
 			setHtml($("#page-content"), data.html);
+			updatePageTags(readPageFormBody().tags);
 			initRuntime();
 		}
 	});
@@ -1070,11 +1091,14 @@ async function init() {
 				const res = await fetch(`/api/page/${path}`);
 				if (res.ok) {
 					const data: PageResponse = await res.json();
+					updatePageTags(data.tags);
 					updatePageOptions(cleanPagePath(path), data);
 				} else {
+					updatePageTags([]);
 					clearPageOptions();
 				}
 			} catch {
+				updatePageTags([]);
 				clearPageOptions();
 			}
 		}
