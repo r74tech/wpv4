@@ -7,6 +7,7 @@ import {
 import type { DataProvider, ResolveOptions, NormalizedListPagesQuery } from "@wdprlib/parser";
 import { renderToHtml } from "@wdprlib/render";
 import type { RenderOptions } from "@wdprlib/render";
+import type { Element } from "@wdprlib/ast";
 import { drizzle } from "drizzle-orm/d1";
 import { eq, and, ne, inArray, notInArray, desc, asc, sql, type SQL } from "drizzle-orm";
 import { pages, pageTags } from "@/db/schema";
@@ -149,6 +150,47 @@ function normalizePageKey(page: string): string {
 		return `${category}:${normalizeUlid(unixName)}`;
 	}
 	return page;
+}
+
+function isAstElement(value: unknown): value is Element {
+	return typeof value === "object" && value !== null && "element" in value;
+}
+
+function collectHtmlBlocksInRenderOrder(elements: Element[]): string[] {
+	const htmlBlocks: string[] = [];
+
+	const visitValue = (value: unknown) => {
+		if (Array.isArray(value)) {
+			for (const item of value) {
+				if (isAstElement(item)) {
+					visitElement(item);
+				} else {
+					visitValue(item);
+				}
+			}
+			return;
+		}
+		if (typeof value !== "object" || value === null) return;
+		for (const child of Object.values(value as Record<string, unknown>)) {
+			visitValue(child);
+		}
+	};
+
+	const visitElement = (element: Element) => {
+		if (element.element === "html") {
+			htmlBlocks.push(element.data.contents);
+			return;
+		}
+		if ("data" in element) {
+			visitValue(element.data);
+		}
+	};
+
+	for (const element of elements) {
+		visitElement(element);
+	}
+
+	return htmlBlocks;
 }
 
 // Wikidot ListPages の order 文字列を pages カラムにマップする。
@@ -460,7 +502,7 @@ export async function renderWikitext(
 	const pagePolicy = visibilityPolicy(options.category);
 	const isPrivatePage = pagePolicy.visibility === "private";
 	const r2Prefix = isPrivatePage ? "private--html" : "local--html";
-	const htmlBlocks = resolvedAst["html-blocks"] ?? [];
+	const htmlBlocks = collectHtmlBlocksInRenderOrder(resolvedAst.elements);
 	const filesDomain = env.FILES_DOMAIN.replace(/\/$/, "");
 
 	// hash は常に計算（URL生成に必要）、R2 PUT は persistHtmlBlocks=true のときだけ
