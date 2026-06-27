@@ -64,7 +64,6 @@ export const ActivitiesPage: FC<Props> = ({ revisions, pagination, search }) => 
 							<tr>
 								<th>Page</th>
 								<th>Rev</th>
-								<th>Title</th>
 								<th>Comment</th>
 								<th>Date</th>
 							</tr>
@@ -73,10 +72,9 @@ export const ActivitiesPage: FC<Props> = ({ revisions, pagination, search }) => 
 							{revisions.map((r) => (
 								<tr>
 									<td>
-										<a href={`/${r.pagePath}`}>{r.pagePath}</a>
+										<a href={`/${r.pagePath}`}>{r.title || r.pagePath}</a>
 									</td>
 									<td>{String(r.revisionNumber)}</td>
-									<td>{r.title}</td>
 									<td>{r.comment ?? ""}</td>
 									<td>{r.createdAt ?? ""}</td>
 								</tr>
