@@ -24,6 +24,7 @@
 		"@wdprlib/parser": "^4.1.0",
 		"@wdprlib/render": "^3.0.1",
 		"@wdprlib/runtime": "^1.0.3",
+		"diff": "^9.0.0",
 		"drizzle-orm": "^0.45.2",
 		"hono": "^4.12.27",
 		"ulidx": "^2.4.1",

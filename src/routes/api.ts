@@ -44,7 +44,12 @@ function parseAndNormalize(pagePath: string): [string, string] {
 
 function normalizeTags(tags: string[]): string[] {
 	return Array.from(
-		new Set(tags.flatMap((tag) => tag.split(/[\s,]+/)).map((tag) => tag.trim()).filter(Boolean)),
+		new Set(
+			tags
+				.flatMap((tag) => tag.split(/[\s,]+/))
+				.map((tag) => tag.trim())
+				.filter(Boolean),
+		),
 	);
 }
 
@@ -501,6 +506,8 @@ api.get("/page-history/*", async (c) => {
 	const revs = isOwner ? allRevs : allRevs.filter((r) => r.visibility !== "private");
 
 	return c.json({
+		currentRevision: page[0].revisionCount ?? 0,
+		canEdit: canEditPage(page[0], viewerId),
 		revisions: revs.map((r) => ({
 			revisionNumber: r.revisionNumber,
 			title: r.title,
@@ -579,6 +586,90 @@ api.get("/page-revision/*/r/:num", async (c) => {
 		created_by_unix_name: rev[0].createdByUnixName,
 		created_at: rev[0].createdAt,
 		page_path: `${page[0].category}:${page[0].unixName}`,
+	});
+});
+
+// 特定リビジョンへ差し戻し
+api.post("/page-revert/*/r/:num", requireAuth, async (c) => {
+	const fullPath = c.req.path.replace("/api/page-revert/", "");
+	const m = fullPath.match(/^(.+)\/r\/(\d+)$/);
+	if (!m) {
+		return c.json({ error: "Invalid path" }, 400);
+	}
+	const pagePath = m[1];
+	const revNum = Number(m[2]);
+	const [category, unixName] = parseAndNormalize(pagePath);
+	const user = c.get("user")!;
+	const db = drizzle(c.env.DB);
+
+	const page = await db
+		.select()
+		.from(pages)
+		.where(and(eq(pages.category, category), eq(pages.unixName, unixName)))
+		.limit(1);
+
+	if (!page[0]) {
+		return c.json({ error: "Page not found" }, 404);
+	}
+	if (!canEditPage(page[0], user.id)) {
+		return c.json({ error: "Forbidden" }, 403);
+	}
+	if (page[0].isLocked) {
+		return c.json({ error: "Page is locked" }, 403);
+	}
+	if (revNum === (page[0].revisionCount ?? 0)) {
+		return c.json({ error: "Already at requested revision" }, 400);
+	}
+
+	const target = await db
+		.select({
+			title: revisions.title,
+			source: revisions.source,
+			visibility: revisions.visibility,
+		})
+		.from(revisions)
+		.where(and(eq(revisions.pageId, page[0].id), eq(revisions.revisionNumber, revNum)))
+		.limit(1);
+
+	if (!target[0]) {
+		return c.json({ error: "Revision not found" }, 404);
+	}
+	if (target[0].visibility === "private" && page[0].createdBy !== user.id) {
+		return c.json({ error: "Forbidden" }, 403);
+	}
+
+	const newRevisionNumber = (page[0].revisionCount ?? 0) + 1;
+	const comment = `You successfully reverted the page to revision number ${revNum}`;
+	const updateResult = await db
+		.update(pages)
+		.set({
+			title: target[0].title,
+			source: target[0].source,
+			revisionCount: newRevisionNumber,
+			updatedBy: user.id,
+			updatedAt: new Date().toISOString(),
+		})
+		.where(and(eq(pages.id, page[0].id), eq(pages.revisionCount, page[0].revisionCount ?? 0)))
+		.returning({ id: pages.id });
+
+	if (updateResult.length === 0) {
+		return c.json({ error: "Conflict: page was modified concurrently" }, 409);
+	}
+
+	await db.insert(revisions).values({
+		pageId: page[0].id,
+		revisionNumber: newRevisionNumber,
+		title: target[0].title,
+		source: target[0].source,
+		comment,
+		visibility: toRevisionVisibility(page[0].category),
+		createdBy: user.id,
+	});
+
+	return c.json({
+		ok: true,
+		new_path: `${page[0].category}:${page[0].unixName}`,
+		revision_number: newRevisionNumber,
 	});
 });
 

@@ -54,3 +54,77 @@
 #page-content .scp-image-block > p > a > img.image {
 	display: block;
 }
+
+.diff-inline-removed {
+	background: #f5b5b5;
+}
+
+.diff-inline-added {
+	background: #a9e8b8;
+}
+
+.source-diff-unified {
+	border: 1px solid #ddd;
+	overflow: auto;
+	background: #fff;
+}
+
+.source-unified-diff {
+	width: 100%;
+	border-collapse: collapse;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+	font-size: 12px;
+	line-height: 1.45;
+}
+
+.source-unified-diff td {
+	padding: 0 0.45em;
+	vertical-align: top;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.source-unified-diff td:first-child,
+.source-unified-diff td:nth-child(2) {
+	width: 1%;
+	min-width: 3em;
+	color: #777;
+	text-align: right;
+	background: #f6f6f6;
+	user-select: none;
+}
+
+.source-unified-diff code {
+	font: inherit;
+	white-space: pre-wrap;
+}
+
+.source-unified-diff .diff-marker {
+	width: 1%;
+	min-width: 1.5em;
+	text-align: center;
+	font-weight: bold;
+	user-select: none;
+}
+
+.diff-line-removed {
+	background: #fff1f1;
+}
+
+.diff-line-added {
+	background: #edfff1;
+}
+
+.diff-line-context {
+	background: #fff;
+}
+
+.diff-line-omitted td {
+	color: #777;
+	background: #f3f3f3;
+	font-style: italic;
+}
+
+.diff-no-change {
+	color: #555;
+}

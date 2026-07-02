@@ -1,5 +1,16 @@
 import { initWdprRuntime } from "@wdprlib/runtime";
 import type { WdprRuntime } from "@wdprlib/runtime";
+import { $, escapeAttr, escapeHtml, setHtml } from "./dom";
+import {
+	clearHistoryState,
+	initHistory,
+	rerenderHistoryPage,
+	revertRevision,
+	showHistory,
+	showRevisionCompare,
+	showRevisionSource,
+	showRevisionView,
+} from "./history";
 
 // --- 型定義 ---
 
@@ -36,16 +47,6 @@ type UserResponse = {
 let runtime: WdprRuntime | null = null;
 let currentUser: UserResponse | null = null;
 
-// --- DOM操作 ---
-
-function $(selector: string): HTMLElement | null {
-	return document.querySelector(selector);
-}
-
-function setHtml(el: HTMLElement | null, html: string) {
-	if (el) el.innerHTML = html;
-}
-
 // --- ページ読み込み ---
 
 function clearActionArea() {
@@ -60,6 +61,7 @@ function clearActionArea() {
 	area.removeAttribute("data-edit-path");
 	area.removeAttribute("data-base-rev");
 	area.style.display = "";
+	clearHistoryState();
 }
 
 // URL パス（例: "private:01ks.../offset/1/page2_limit/1"）から
@@ -73,6 +75,7 @@ function cleanPagePath(path: string): string {
 
 async function loadPage(path: string) {
 	clearActionArea();
+	injectStyles([]);
 	const pageContent = $("#page-content");
 	const pageTitle = $("#page-title");
 	// API には URL params 付きの full path を投げる（ListPages の @URL|... 解決に必要）。
@@ -429,195 +432,6 @@ async function showSource(path: string) {
 	$("#btn-close-action")?.addEventListener("click", () => setHtml(actionArea, ""));
 }
 
-// --- 特定リビジョン表示 ---
-
-type RevisionResponse = {
-	revision_number: number;
-	title: string;
-	source: string;
-	comment: string | null;
-	created_by: number | null;
-	created_by_name: string | null;
-	created_by_unix_name: string | null;
-	created_at: string | null;
-	page_path: string;
-};
-
-async function fetchRevision(path: string, num: number): Promise<RevisionResponse | null> {
-	const res = await fetch(`/api/page-revision/${path}/r/${num}`);
-	if (!res.ok) return null;
-	return (await res.json()) as RevisionResponse;
-}
-
-function openHistorySubarea(content: string) {
-	const sub = $("#history-subarea");
-	if (!sub) return;
-	sub.style.display = "block";
-	setHtml(
-		sub,
-		`<a href="javascript:;" class="action-area-close" id="btn-close-subarea">close</a>` + content,
-	);
-	$("#btn-close-subarea")?.addEventListener("click", () => {
-		sub.style.display = "none";
-		setHtml(sub, "");
-	});
-}
-
-async function showRevisionView(path: string, num: number) {
-	const data = await fetchRevision(path, num);
-	if (!data) {
-		openHistorySubarea("<p>Failed to load revision.</p>");
-		return;
-	}
-
-	const previewRes = await fetch("/api/preview", {
-		method: "POST",
-		headers: { "Content-Type": "application/json", Origin: window.location.origin },
-		body: JSON.stringify({ source: data.source }),
-	});
-	const rendered = previewRes.ok
-		? ((await previewRes.json()) as { html: string; styles: string[] })
-		: { html: `<pre>${escapeHtml(data.source)}</pre>`, styles: [] };
-
-	// Wikidot: View Revision は #page-content を上書き、上に #page-version-info メタを表示
-	const dateStr = data.created_at
-		? new Date(data.created_at + "Z").toLocaleString("ja-JP", {
-				year: "numeric",
-				month: "short",
-				day: "numeric",
-				hour: "2-digit",
-				minute: "2-digit",
-			})
-		: "";
-	const userDisplay = data.created_by_name
-		? `<span class="printuser">${escapeHtml(data.created_by_name)}</span>`
-		: data.created_by !== null
-			? `user #${data.created_by}`
-			: "(unknown)";
-
-	const versionInfo =
-		`<div id="page-version-info">` +
-		`<table><tbody>` +
-		`<tr><td>Revision no.:</td><td>${data.revision_number}</td></tr>` +
-		`<tr><td>Date created:</td><td>${escapeHtml(dateStr)}</td></tr>` +
-		`<tr><td>By:</td><td>${userDisplay}</td></tr>` +
-		`<tr><td>Page name:</td><td>${escapeHtml(data.page_path)}</td></tr>` +
-		(data.comment ? `<tr><td>Comment:</td><td>${escapeHtml(data.comment)}</td></tr>` : "") +
-		`</tbody></table>` +
-		`<a href="javascript:;" id="btn-close-version-info">Close this box</a>` +
-		`</div>`;
-
-	injectStyles(rendered.styles);
-	setHtml($("#page-title"), `<span>${escapeHtml(data.title)}</span>`);
-	setHtml($("#page-content"), versionInfo + rendered.html);
-	initRuntime();
-	$("#btn-close-version-info")?.addEventListener("click", () => {
-		const info = document.getElementById("page-version-info");
-		if (info) info.style.display = "none";
-	});
-}
-
-async function showRevisionSource(path: string, num: number) {
-	const data = await fetchRevision(path, num);
-	if (!data) {
-		openHistorySubarea("<p>Failed to load revision.</p>");
-		return;
-	}
-	openHistorySubarea(
-		`<h2>Page source for revision no. ${num}</h2>` +
-			(data.comment ? `<p><em>${escapeHtml(data.comment)}</em></p>` : "") +
-			`<div class="page-source"><pre>${escapeHtml(data.source)}</pre></div>`,
-	);
-}
-
-// --- 履歴表示 ---
-
-async function showHistory(path: string) {
-	const actionArea = $("#action-area");
-	if (!actionArea) return;
-
-	const res = await fetch(`/api/page-history/${path}`);
-	if (!res.ok) {
-		setHtml(actionArea, "<p>Failed to load history.</p>");
-		return;
-	}
-
-	type Revision = {
-		revisionNumber: number;
-		title: string;
-		comment: string;
-		createdAt: string;
-		createdBy: number | null;
-		createdByName: string | null;
-		createdByUnixName: string | null;
-	};
-	const data = (await res.json()) as { revisions: Revision[] };
-	const sorted = data.revisions.sort((a, b) => b.revisionNumber - a.revisionNumber);
-
-	const rows = sorted
-		.map((r) => {
-			const date = r.createdAt
-				? new Date(r.createdAt + "Z").toLocaleDateString("ja-JP", {
-						year: "numeric",
-						month: "short",
-						day: "numeric",
-					})
-				: "";
-			// by 列は username (printuser)、 fallback で createdBy id か空文字。
-			const userDisplay = r.createdByName
-				? `<span class="printuser">${escapeHtml(r.createdByName)}</span>`
-				: r.createdBy !== null
-					? `user #${r.createdBy}`
-					: "";
-			return (
-				`<tr id="revision-row-${r.revisionNumber}">` +
-				`<td>${r.revisionNumber}.</td>` +
-				`<td style="width: 5em">&nbsp;</td>` +
-				`<td>&nbsp;</td>` +
-				`<td style="width: 5em" class="optionstd">` +
-				`<a title="" href="javascript:;" data-action="view-revision" data-path="${path}" data-rev="${r.revisionNumber}">V</a> ` +
-				`<a title="" href="javascript:;" data-action="source-revision" data-path="${path}" data-rev="${r.revisionNumber}">S</a>` +
-				`</td>` +
-				`<td style="width: 15em">${userDisplay}</td>` +
-				`<td style="padding: 0 0.5em; width: 7em;">${date}</td>` +
-				`<td style="font-size: 90%">${escapeHtml(r.comment ?? "")}</td>` +
-				`</tr>`
-			);
-		})
-		.join("");
-
-	setHtml(
-		actionArea,
-		`<a href="javascript:;" class="action-area-close btn btn-danger" id="btn-close-action">` +
-			`<i class="icon-remove"></i> Close</a>` +
-			`<h1>Page history of changes</h1>` +
-			`<div id="revision-list">` +
-			`<table class="page-history"><tbody>` +
-			`<tr><td>rev.</td><td>&nbsp;</td><td>flags</td><td>actions</td><td>by</td><td>date</td><td>comments</td></tr>` +
-			rows +
-			`</tbody></table>` +
-			`</div>` +
-			`<div id="history-subarea" style="display: none;"></div>`,
-	);
-	$("#btn-close-action")?.addEventListener("click", () => setHtml(actionArea, ""));
-}
-
-// --- ユーティリティ ---
-
-function escapeAttr(str: string): string {
-	return str
-		.replace(/&/g, "&amp;")
-		.replace(/"/g, "&quot;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;");
-}
-
-function escapeHtml(str: string): string {
-	const div = document.createElement("div");
-	div.textContent = str;
-	return div.innerHTML;
-}
-
 // --- イベントハンドラ ---
 
 function setupEventHandlers() {
@@ -700,6 +514,11 @@ function setupEventHandlers() {
 				showEditor(path);
 			} else if (action === "history") {
 				showHistory(path);
+			} else if (action === "history-page") {
+				const page = Number(actionAnchor.dataset.page);
+				if (!Number.isNaN(page)) rerenderHistoryPage(page);
+			} else if (action === "compare-revisions") {
+				showRevisionCompare(path);
 			} else if (action === "source") {
 				showSource(path);
 			} else if (action === "view-revision") {
@@ -708,6 +527,9 @@ function setupEventHandlers() {
 			} else if (action === "source-revision") {
 				const rev = Number(actionAnchor.dataset.rev);
 				if (!Number.isNaN(rev)) showRevisionSource(path, rev);
+			} else if (action === "revert-revision") {
+				const rev = Number(actionAnchor.dataset.rev);
+				if (!Number.isNaN(rev)) revertRevision(path, rev);
 			}
 			return;
 		}
@@ -1064,6 +886,7 @@ function setupPageForm() {
 // --- 初期化 ---
 
 async function init() {
+	initHistory({ injectStyles, initRuntime, loadPage });
 	setupEventHandlers();
 	await Promise.all([loadAuthStatus(), loadSidebar(), loadTopbar()]);
 
