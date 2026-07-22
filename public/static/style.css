@@ -55,6 +55,15 @@
 	display: block;
 }
 
+/* FOR SIGMA10 */
+.creditRate::before {
+    display: none;
+}
+div.page-rate-widget-box .rate-points {
+    color: #ffffff;
+    padding: 0 10px;
+}
+
 .diff-inline-removed {
 	background: #f5b5b5;
 }
