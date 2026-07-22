@@ -29,6 +29,7 @@ bun run typecheck                              # サーバー側
 bunx tsc -p src/client/tsconfig.json --noEmit  # クライアント側
 bun run lint
 bun run format
+bun run test
 ```
 
 ## デプロイ

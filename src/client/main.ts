@@ -1,6 +1,7 @@
 import { initWdprRuntime } from "@wdprlib/runtime";
 import type { WdprRuntime } from "@wdprlib/runtime";
 import { $, escapeAttr, escapeHtml, setHtml } from "./dom";
+import { normalizePagePath, shouldReloadPage } from "./navigation";
 import {
 	clearHistoryState,
 	initHistory,
@@ -46,6 +47,7 @@ type UserResponse = {
 
 let runtime: WdprRuntime | null = null;
 let currentUser: UserResponse | null = null;
+let renderedPagePath: string | null = null;
 
 // --- ページ読み込み ---
 
@@ -74,6 +76,7 @@ function cleanPagePath(path: string): string {
 }
 
 async function loadPage(path: string) {
+	renderedPagePath = normalizePagePath(path);
 	clearActionArea();
 	injectStyles([]);
 	const pageContent = $("#page-content");
@@ -468,7 +471,7 @@ function setupEventHandlers() {
 	// ブラウザの戻る/進む
 	window.addEventListener("popstate", () => {
 		const path = getPagePathFromUrl();
-		if (path) loadPage(path);
+		if (path && shouldReloadPage(renderedPagePath, path)) loadPage(path);
 	});
 
 	// ページオプション + ログアウト + アクション閉じる
@@ -888,6 +891,8 @@ function setupPageForm() {
 async function init() {
 	initHistory({ injectStyles, initRuntime, loadPage });
 	setupEventHandlers();
+	const initialPagePath = getPagePathFromUrl();
+	renderedPagePath = initialPagePath ? normalizePagePath(initialPagePath) : null;
 	await Promise.all([loadAuthStatus(), loadSidebar(), loadTopbar()]);
 
 	// /new SSR画面（action-area に data-new-type）が居る場合はフォーム起動して終了

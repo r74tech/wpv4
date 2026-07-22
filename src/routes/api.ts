@@ -355,7 +355,7 @@ api.post("/page/:ulid/visibility", requireAuth, zValidator("json", visibilitySch
 		const refs = includeBecomesBroken
 			? await findReferencingPages(db, ulid, page[0].id, user.id)
 			: { visible: [], hiddenCount: 0 };
-		// listPagesPresenceChanges は被参照ゼロでも 409（codex 指摘 #2）。
+		// listPagesPresenceChanges は被参照ゼロでも 409。
 		// includeBecomesBroken は被参照ゼロなら通す（壊れる先がないため）
 		const shouldWarn = listPagesPresenceChanges || refs.visible.length > 0 || refs.hiddenCount > 0;
 		if (shouldWarn) {
@@ -392,7 +392,7 @@ api.post("/page/:ulid/visibility", requireAuth, zValidator("json", visibilitySch
 			and(
 				eq(pages.id, page[0].id),
 				eq(pages.category, page[0].category),
-				// 並行編集（PUT）で revisionCount が進んでいたら 0 件にして 409 を返す（codex 指摘 #3）
+				// 並行編集（PUT）で revisionCount が進んでいたら 0 件にして 409 を返す
 				eq(pages.revisionCount, page[0].revisionCount ?? 0),
 			),
 		)
@@ -402,7 +402,7 @@ api.post("/page/:ulid/visibility", requireAuth, zValidator("json", visibilitySch
 		return c.json({ error: "Conflict: page was modified concurrently" }, 409);
 	}
 
-	// codex 2回目 Finding 2: visibility 切替に伴い R2 html-block prefix を移動する
+	// visibility 切替に伴い R2 html-block prefix を移動する
 	// （旧 prefix のオブジェクトが残ると 404 / 旧 public URL からの漏洩リスク）
 	const fromVis = visibilityPolicy(page[0].category).visibility;
 	const toVis = visibilityPolicy(body.target).visibility;
@@ -500,7 +500,7 @@ api.get("/page-history/*", async (c) => {
 		.where(eq(revisions.pageId, page[0].id))
 		.orderBy(revisions.revisionNumber);
 
-	// 当時 private だったリビジョンは作成者本人のみ閲覧可能（codex 指摘 #1）
+	// 当時 private だったリビジョンは作成者本人のみ閲覧可能
 	// page.createdBy で判定（page所有者なら過去の private リビジョンも見れる）
 	const isOwner = viewerId !== null && page[0].createdBy === viewerId;
 	const revs = isOwner ? allRevs : allRevs.filter((r) => r.visibility !== "private");
@@ -568,7 +568,7 @@ api.get("/page-revision/*/r/:num", async (c) => {
 		return c.json({ error: "Revision not found" }, 404);
 	}
 
-	// 当時 private だったリビジョンは作成者本人のみ閲覧可能（codex 指摘 #1）
+	// 当時 private だったリビジョンは作成者本人のみ閲覧可能
 	if (rev[0].visibility === "private") {
 		const isOwner = viewerId !== null && page[0].createdBy === viewerId;
 		if (!isOwner) {

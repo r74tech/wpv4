@@ -15,7 +15,8 @@ type Props = PropsWithChildren<{
 
 export const WikidotShell: FC<Props> = ({ children, sidebar, topbar, pageStyles }) => {
 	const clientScript = getClientScriptPath("main");
-	const allStyles = [...(sidebar?.styles ?? []), ...(topbar?.styles ?? []), ...(pageStyles ?? [])];
+	const navigationStyles = [...(sidebar?.styles ?? []), ...(topbar?.styles ?? [])];
+	const resolvedPageStyles = pageStyles ?? [];
 
 	return (
 		<>
@@ -26,7 +27,10 @@ export const WikidotShell: FC<Props> = ({ children, sidebar, topbar, pageStyles 
 					<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 					<title>Wikitext Previewer v4</title>
 					<link href="/static/style.css" rel="stylesheet" />
-					{allStyles.length > 0 && <style>{raw(allStyles.join("\n"))}</style>}
+					{navigationStyles.length > 0 && <style>{raw(navigationStyles.join("\n"))}</style>}
+					{resolvedPageStyles.length > 0 && (
+						<style id="wdpr-page-styles">{raw(resolvedPageStyles.join("\n"))}</style>
+					)}
 				</head>
 				<body id="html-body">
 					<div id="skrollr-body">

@@ -4,7 +4,13 @@ import {
 	extractDataRequirements,
 	resolveModules,
 } from "@wdprlib/parser";
-import type { DataProvider, ResolveOptions, NormalizedListPagesQuery } from "@wdprlib/parser";
+import type {
+	DataProvider,
+	ResolveOptions,
+	NormalizedListPagesQuery,
+	TagCloudDataRequirement,
+	TagCloudExternalData,
+} from "@wdprlib/parser";
 import { renderToHtml } from "@wdprlib/render";
 import type { RenderOptions } from "@wdprlib/render";
 import type { Element } from "@wdprlib/ast";
@@ -12,6 +18,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { eq, and, ne, inArray, notInArray, desc, asc, sql, type SQL } from "drizzle-orm";
 import { pages, pageTags } from "@/db/schema";
 import { canViewPage, isUlidCategory, normalizeUlid, visibilityPolicy } from "@/lib/visibility";
+import { normalizeWikidotCategoryName } from "@/lib/wikidot-name";
 import type { Bindings } from "@/types/env";
 
 export type RenderResult = {
@@ -96,7 +103,7 @@ async function hmacSha256Hex(secret: string, message: string): Promise<string> {
  * old prefix から list → copy → delete を直列実行（少数想定なのでO(n)で十分）。
  * R2 list の prefix は `${prefix}/${page}/` で限定し、 他 page の object を巻き込まない。
  *
- * codex 2回目 Finding 2 対応: visibility toggle 時に旧 prefix のオブジェクトが
+ * visibility toggle 時に旧 prefix のオブジェクトが
  * 残り続けると、URL 切替後に 404 が出る + 旧 prefix からの漏洩リスク（private→public 後の
  * 旧 local--html/ オブジェクトは無いので問題ないが、public→private で旧 local--html/ が
  * 残ると ukey 無しでアクセス可能）になるため、必ず移動する。
@@ -206,6 +213,7 @@ const ORDER_COLUMN_MAP = {
 const LIST_PAGES_LIMIT_CAP = 100;
 const LIST_PAGES_OFFSET_CAP = 1000;
 const LIST_PAGES_DEFAULT_LIMIT = 20;
+const HIDDEN_TAG_PREFIX = "_";
 
 type Db = ReturnType<typeof drizzle>;
 
@@ -217,7 +225,7 @@ type Db = ReturnType<typeof drizzle>;
  * セキュリティ要点:
  *  - range="." は options.pageName/category を信頼するが、 viewerId に対する canViewPage
  *    を最終フィルタとして必ず適用する。未認証 preview から他人の private ページ本文を
- *    読み出されることを防ぐため（codex review High）。
+ *    読み出されることを防ぐため。
  *  - 明示的 category フィルタが無いときだけ listPagesScope（share/private 除外）を
  *    かける。明示指定があれば従い、その結果に対しても canViewPage を最終適用する。
  */
@@ -250,7 +258,7 @@ async function fetchListPagesData(
 		);
 	} else {
 		// range="." 以外では share/private を ListPages から完全に除外（spec: 列挙不可）。
-		// codex 指摘 High: category="share" や "*" 経由でも share ページを引けてはならない。
+		// category="share" や "*" 経由でも share ページを引けてはならない。
 		// canViewPage だけでは share を防げないため、 SQL レベルで強制する。
 		conditions.push(listPagesScope() as SQL);
 	}
@@ -259,7 +267,7 @@ async function fetchListPagesData(
 		// "*" (all) は include filter なし（exclude のみ反映）。
 		// "." (current) は現ページの category だけに絞る。
 		// 通常の include 指定は IN で絞り、 exclude は all/current/include いずれの後でも
-		// 必ず追加適用する（codex 指摘 Medium: all/current で exclude が無視される）。
+		// 必ず追加適用し、all/current でも exclude を無視しない。
 		if (query.category.current) {
 			conditions.push(eq(pages.category, ctx.currentCategory));
 		} else if (!query.category.all && query.category.include.length > 0) {
@@ -305,7 +313,7 @@ async function fetchListPagesData(
 		//  - "none"         → タグが一つも無い page
 		//  - "same-visible" → 現ページの visible (非 _-prefix) タグを少なくとも 1 つ共有
 		//  - "same-all"     → 現ページの全タグ（hidden 含む）を少なくとも 1 つ共有
-		// codex 指摘 Medium: same-visible / same-all を未処理にすると tags="=" 系が
+		// same-visible / same-all を未処理にすると tags="=" 系が
 		// 何の条件にもならず想定外のページが出る。
 		if (query.tags.special === "none") {
 			const sub = db.selectDistinct({ pageId: pageTags.pageId }).from(pageTags);
@@ -326,7 +334,7 @@ async function fetchListPagesData(
 		}
 	}
 
-	// canViewPage 相当を SQL に内包する（codex 指摘 Medium: COUNT/limit/offset の前で
+	// canViewPage 相当を SQL に内包する（COUNT/limit/offset の前で
 	// 弾かないと %%total%% と pagination が壊れる）。
 	// 仕様: private は createdBy === viewerId のみ可視。 viewerId=null なら一切不可。
 	if (ctx.viewerId === null) {
@@ -414,9 +422,54 @@ async function fetchListPagesData(
 	};
 }
 
+async function fetchTagCloudData(
+	db: Db,
+	requirement: TagCloudDataRequirement,
+): Promise<TagCloudExternalData> {
+	let category: string | null = null;
+
+	if (requirement.category !== null) {
+		category = normalizeWikidotCategoryName(requirement.category);
+		if (category === "") {
+			return { status: "category-not-found", category: requirement.category };
+		}
+
+		const categoryRows = await db
+			.select({ category: pages.category })
+			.from(pages)
+			.where(and(listPagesScope(), eq(pages.category, category)))
+			.limit(1);
+		if (!categoryRows[0]) {
+			return { status: "category-not-found", category: requirement.category };
+		}
+	}
+
+	const weight = sql<number>`COUNT(${pageTags.pageId})`;
+	const conditions: SQL[] = [
+		listPagesScope() as SQL,
+		sql`substr(${pageTags.tag}, 1, 1) != ${HIDDEN_TAG_PREFIX}`,
+	];
+	if (category !== null) conditions.push(eq(pages.category, category));
+
+	const rows = await db
+		.select({ tag: pageTags.tag, weight })
+		.from(pageTags)
+		.innerJoin(pages, eq(pageTags.pageId, pages.id))
+		.where(and(...conditions))
+		.groupBy(pageTags.tag)
+		.orderBy(desc(weight), asc(pageTags.tag))
+		.limit(requirement.limit);
+
+	return {
+		status: "ok",
+		tags: rows.map((row) => ({ tag: row.tag, weight: Number(row.weight) })),
+		category,
+	};
+}
+
 /**
  * wikitextソースをパース・レンダリングしてHTMLを返す。
- * include展開、モジュール解決（ListPages, IfTags等）もサーバーサイドで行う。
+ * include展開、モジュール解決（ListPages, TagCloud, IfTags等）もサーバーサイドで行う。
  * viewerId に応じて他人のprivateは include / ListPages / pageExists 全てから除外。
  */
 export async function renderWikitext(
@@ -444,7 +497,7 @@ export async function renderWikitext(
 	// include 展開:
 	// - pages.unix_name は単独 UNIQUE なので、ULID/固定名どちらも一意特定可能
 	// - public↔share トグルで category が変わっても unix_name 検索なら追従できる
-	//   (codex 2回目 Finding 1: include は category 非依存で解決すべき)
+	//   （include は category 非依存で解決する）
 	// - canInclude 判定は「DB 上の現在の category」で行う (URL での指定ではなく)
 	const expanded = await resolveIncludesAsync(source, async (pageRef) => {
 		const [catRaw, nameRaw] = parsePagePath(pageRef.page);
@@ -479,6 +532,7 @@ export async function renderWikitext(
 				viewerId,
 			});
 		},
+		fetchTagCloud: (requirement) => fetchTagCloudData(db, requirement),
 		getPageTags: () => options.tags ?? [],
 	};
 
