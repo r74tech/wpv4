@@ -3,6 +3,7 @@ import { describe, expect, mock, test } from "bun:test";
 mock.module("client-manifest-data", () => ({ default: {} }));
 
 const { WikidotShell } = await import("../src/components/WikidotShell");
+const { PageTitle } = await import("../src/components/PageTitle");
 
 async function renderShell() {
 	return String(
@@ -41,5 +42,19 @@ describe("WikidotShell styles", () => {
 
 		expect(html).not.toContain('id="wdpr-page-styles"');
 		expect(html).toContain(".side { color: blue; }");
+	});
+});
+
+describe("PageTitle", () => {
+	test("does not render a title box when the title is empty", async () => {
+		const html = String(await PageTitle({ title: "" }));
+
+		expect(html).toBe('<div id="page-title" hidden=""></div>');
+	});
+
+	test("renders and escapes a non-empty title", async () => {
+		const html = String(await PageTitle({ title: "A < B" }));
+
+		expect(html).toBe('<div id="page-title"><span>A &lt; B</span></div>');
 	});
 });

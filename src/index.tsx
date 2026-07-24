@@ -4,13 +4,14 @@ import { cors } from "hono/cors";
 import { drizzle } from "drizzle-orm/d1";
 import { eq, and } from "drizzle-orm";
 import { pages, pageTags } from "./db/schema";
-import { renderWikitext, parsePagePath, getExistingPageSet } from "./services/pipeline";
+import { renderWikitext, parsePagePath } from "./services/pipeline";
 import { renderNav } from "./services/nav";
 import { api } from "./routes/api";
 import { auth } from "./routes/auth";
 import { user } from "./routes/user";
 import { passkeyApi } from "./routes/passkey-api";
 import { WikidotShell } from "./components/WikidotShell";
+import { PageTitle } from "./components/PageTitle";
 import { resolveSession } from "./middleware/session";
 import { canViewPage, isUlidCategory, normalizeUlid } from "./lib/visibility";
 import type { AppEnv } from "./types/env";
@@ -57,7 +58,7 @@ app.get("/new", async (c) => {
 	// Wikidot のページ編集画面構造を踏襲（既存CSSを活かすため）
 	return c.html(
 		<WikidotShell sidebar={sidebar} topbar={topbar}>
-			<div id="page-title" />
+			<PageTitle title="" />
 			<div id="page-content" />
 			<div id="action-area" style="display: block;" data-new-type={type}>
 				<h1>Create a new {type} page</h1>
@@ -150,20 +151,14 @@ app.get("*", async (c) => {
 	const viewerId = c.get("user")?.id ?? null;
 	const db = drizzle(c.env.DB);
 
-	// ページ存在Setとページデータを並列取得
-	const [existingPages, pageRow] = await Promise.all([
-		getExistingPageSet(c.env.DB, viewerId),
+	const [pageRow, sidebar, topbar] = await Promise.all([
 		db
 			.select()
 			.from(pages)
 			.where(and(eq(pages.category, category), eq(pages.unixName, unixName)))
 			.limit(1),
-	]);
-
-	// sidebar・topbar をSet付きで並列レンダリング
-	const [sidebar, topbar] = await Promise.all([
-		renderNav(c.env, "side", viewerId, existingPages),
-		renderNav(c.env, "top", viewerId, existingPages),
+		renderNav(c.env, "side", viewerId),
+		renderNav(c.env, "top", viewerId),
 	]);
 
 	const page = pageRow[0];
@@ -171,7 +166,7 @@ app.get("*", async (c) => {
 	if (!page) {
 		return c.html(
 			<WikidotShell sidebar={sidebar} topbar={topbar}>
-				<div id="page-title" />
+				<PageTitle title="" />
 				<div id="page-content">
 					<p>Page not found.</p>
 				</div>
@@ -183,9 +178,7 @@ app.get("*", async (c) => {
 	if (!canViewPage(page, viewerId)) {
 		return c.html(
 			<WikidotShell sidebar={sidebar} topbar={topbar}>
-				<div id="page-title">
-					<span>Forbidden</span>
-				</div>
+				<PageTitle title="Forbidden" />
 				<div id="page-content">
 					<p>This page is private.</p>
 				</div>
@@ -205,15 +198,13 @@ app.get("*", async (c) => {
 		category,
 		tags: tagNames,
 		viewerId,
-		existingPages,
 		urlPath: c.req.path,
+		persistHtmlBlocks: true,
 	});
 
 	return c.html(
 		<WikidotShell sidebar={sidebar} topbar={topbar} pageStyles={result.styles}>
-			<div id="page-title">
-				<span>{page.title}</span>
-			</div>
+			<PageTitle title={page.title} />
 			<div id="page-content">{raw(result.html)}</div>
 			<PageTags tags={tagNames} />
 		</WikidotShell>,

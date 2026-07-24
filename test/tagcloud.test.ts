@@ -139,7 +139,6 @@ describe("renderWikitext TagCloud", () => {
 		const result = await renderWikitext("[[module TagCloud]]", createEnv(sqlite), {
 			pageName: "start",
 			category: "_default",
-			existingPages: new Set(),
 		});
 
 		expect(await inspectTagCloudHtml(result.html)).toEqual({
@@ -174,7 +173,6 @@ describe("renderWikitext TagCloud", () => {
 			{
 				pageName: "start",
 				category: "_default",
-				existingPages: new Set(),
 			},
 		);
 
@@ -198,7 +196,6 @@ describe("renderWikitext TagCloud", () => {
 			{
 				pageName: "start",
 				category: "_default",
-				existingPages: new Set(),
 			},
 		);
 		const missing = await renderWikitext(
@@ -207,7 +204,6 @@ describe("renderWikitext TagCloud", () => {
 			{
 				pageName: "start",
 				category: "_default",
-				existingPages: new Set(),
 			},
 		);
 
@@ -238,7 +234,6 @@ describe("renderWikitext TagCloud", () => {
 			{
 				pageName: "start",
 				category: "_default",
-				existingPages: new Set(),
 			},
 		);
 
@@ -266,7 +261,6 @@ describe("renderWikitext TagCloud", () => {
 			{
 				pageName: "start",
 				category: "_default",
-				existingPages: new Set(),
 			},
 		);
 

@@ -87,6 +87,7 @@ api.get("/page/*", async (c) => {
 		// SPA から /api/page/<page-path>/offset/1/... の形で呼ばれる。
 		// pagePath はその全体（category:name + URL params）なので `/` を付けて渡す。
 		urlPath: `/${pagePath}`,
+		persistHtmlBlocks: true,
 	});
 
 	return c.json({
@@ -575,6 +576,10 @@ api.get("/page-revision/*/r/:num", async (c) => {
 			return c.json({ error: "Forbidden" }, 403);
 		}
 	}
+	const tags = await db
+		.select({ tag: pageTags.tag })
+		.from(pageTags)
+		.where(eq(pageTags.pageId, page[0].id));
 
 	return c.json({
 		revision_number: rev[0].revisionNumber,
@@ -586,6 +591,7 @@ api.get("/page-revision/*/r/:num", async (c) => {
 		created_by_unix_name: rev[0].createdByUnixName,
 		created_at: rev[0].createdAt,
 		page_path: `${page[0].category}:${page[0].unixName}`,
+		tags: tags.map((tag) => tag.tag),
 	});
 });
 
@@ -676,17 +682,31 @@ api.post("/page-revert/*/r/:num", requireAuth, async (c) => {
 // プレビュー（保存せずにレンダリング）
 const previewSchema = z.object({
 	source: z.string(),
+	page_path: z.string().optional(),
 	page_name: z.string().default("preview"),
 	category: z.string().default("_default"),
+	tags: z.array(z.string()).default([]),
+	url_path: z.string().optional(),
 });
 
 api.post("/preview", zValidator("json", previewSchema), async (c) => {
 	const body = c.req.valid("json");
 	const viewerId = c.get("user")?.id ?? null;
+	const [category, pageName] = body.page_path
+		? parseAndNormalize(body.page_path)
+		: [
+				body.category,
+				isUlidCategory(body.category) ? normalizeUlid(body.page_name) : body.page_name,
+			];
+	const urlPath =
+		body.url_path ?? (body.page_path ? `/${body.page_path.replace(/^\/+/, "")}` : undefined);
 	const result = await renderWikitext(body.source, c.env, {
-		pageName: body.page_name,
-		category: body.category,
+		pageName,
+		category,
+		tags: normalizeTags(body.tags),
 		viewerId,
+		urlPath,
+		persistHtmlBlocks: false,
 	});
 	return c.json(result);
 });
