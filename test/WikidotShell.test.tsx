@@ -5,16 +5,31 @@ mock.module("client-manifest-data", () => ({ default: {} }));
 const { WikidotShell } = await import("../src/components/WikidotShell");
 const { PageTitle } = await import("../src/components/PageTitle");
 
-async function renderShell() {
+async function renderShell(title?: string) {
 	return String(
 		await WikidotShell({
 			children: "<main>content</main>",
 			sidebar: { html: "<p>side</p>", styles: [".side { color: blue; }"] },
 			topbar: { html: "<p>top</p>", styles: [".top { color: green; }"] },
 			pageStyles: [".page { color: red; }"],
+			title,
 		}),
 	);
 }
+
+describe("WikidotShell document title", () => {
+	test("uses the application title when the page title is omitted", async () => {
+		const html = await renderShell();
+
+		expect(html).toContain("<title>Wikitext Previewer v4</title>");
+	});
+
+	test("prefixes and escapes the page title", async () => {
+		const html = await renderShell("A < B");
+
+		expect(html).toContain("<title>A &lt; B - Wikitext Previewer v4</title>");
+	});
+});
 
 describe("WikidotShell styles", () => {
 	test("renders page styles in the element managed by SPA navigation", async () => {

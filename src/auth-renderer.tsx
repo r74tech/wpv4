@@ -1,5 +1,6 @@
 import { jsxRenderer } from "hono/jsx-renderer";
 import { getClientScriptPath } from "./client-manifest";
+import { APPLICATION_TITLE } from "./lib/document-title";
 
 export const authRenderer = jsxRenderer(({ children }) => {
 	const clientScript = getClientScriptPath("auth");
@@ -8,7 +9,7 @@ export const authRenderer = jsxRenderer(({ children }) => {
 			<head>
 				<meta charset="UTF-8" />
 				<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-				<title>Wikitext Previewer v4</title>
+				<title>{APPLICATION_TITLE}</title>
 				<link href="/static/auth.css" rel="stylesheet" />
 			</head>
 			<body>

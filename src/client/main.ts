@@ -4,6 +4,7 @@ import { $, escapeAttr, escapeHtml, setHtml } from "./dom";
 import { normalizePagePath, shouldReloadPage } from "./navigation";
 import { buildPreviewRequest, isPreviewCategory } from "./preview";
 import { commitPagePresentation } from "./page-presentation";
+import { formatDocumentTitle } from "../lib/document-title";
 import {
 	clearHistoryState,
 	initHistory,
@@ -86,6 +87,9 @@ async function loadPage(path: string) {
 		setHtml(pageTitle, html);
 		pageTitle?.toggleAttribute("hidden", hidden);
 	};
+	const resetDocumentTitle = () => {
+		document.title = formatDocumentTitle("");
+	};
 	// API には URL params 付きの full path を投げる（ListPages の @URL|... 解決に必要）。
 	// Edit / Source / History / data-path 等の表示用には clean path を使う。
 	const cleanPath = cleanPagePath(path);
@@ -95,11 +99,13 @@ async function loadPage(path: string) {
 		if (!res.ok) {
 			if (res.status === 404) {
 				injectStyles([]);
+				resetDocumentTitle();
 				replaceTitle("", true);
 				setHtml(pageContent, "<p>ページが見つかりません。</p>");
 				updatePageTags([]);
 			} else if (res.status === 403) {
 				injectStyles([]);
+				resetDocumentTitle();
 				replaceTitle("<span>Forbidden</span>", false);
 				setHtml(pageContent, "<p>This page is private.</p>");
 				updatePageTags([]);
@@ -113,6 +119,9 @@ async function loadPage(path: string) {
 		const data: PageResponse = await res.json();
 		commitPagePresentation(data, {
 			replaceStyles: injectStyles,
+			replaceDocumentTitle: (title) => {
+				document.title = title;
+			},
 			replaceTitle,
 			replaceContent: (html) => setHtml(pageContent, html),
 			replaceTags: updatePageTags,
@@ -122,6 +131,7 @@ async function loadPage(path: string) {
 	} catch (err) {
 		console.error("Failed to load page:", err);
 		injectStyles([]);
+		resetDocumentTitle();
 		replaceTitle("", true);
 		setHtml(pageContent, "<p>ページの読み込みに失敗しました。</p>");
 		updatePageTags([]);

@@ -9,13 +9,20 @@ describe("commitPagePresentation", () => {
 			{ title: "", html: '<div class="tag-cloud">tags</div>', styles: [".tag-cloud{}"], tags: [] },
 			{
 				replaceStyles: () => operations.push("styles"),
+				replaceDocumentTitle: (title) => operations.push(`document-title:${title}`),
 				replaceTitle: (html, hidden) => operations.push(`title:${html}:${hidden}`),
 				replaceContent: () => operations.push("content"),
 				replaceTags: () => operations.push("tags"),
 			},
 		);
 
-		expect(operations).toEqual(["styles", "title::true", "content", "tags"]);
+		expect(operations).toEqual([
+			"styles",
+			"document-title:Wikitext Previewer v4",
+			"title::true",
+			"content",
+			"tags",
+		]);
 	});
 
 	test("escapes and exposes a non-empty title", () => {
@@ -25,6 +32,7 @@ describe("commitPagePresentation", () => {
 			{ title: "A < B", html: "", styles: [], tags: [] },
 			{
 				replaceStyles: () => {},
+				replaceDocumentTitle: () => {},
 				replaceTitle: (html, hidden) => {
 					title = { html, hidden };
 				},
@@ -34,5 +42,24 @@ describe("commitPagePresentation", () => {
 		);
 
 		expect(title).toEqual({ html: "<span>A &lt; B</span>", hidden: false });
+	});
+
+	test("formats a non-empty document title", () => {
+		let documentTitle = "";
+
+		commitPagePresentation(
+			{ title: "A < B", html: "", styles: [], tags: [] },
+			{
+				replaceStyles: () => {},
+				replaceDocumentTitle: (title) => {
+					documentTitle = title;
+				},
+				replaceTitle: () => {},
+				replaceContent: () => {},
+				replaceTags: () => {},
+			},
+		);
+
+		expect(documentTitle).toBe("A < B - Wikitext Previewer v4");
 	});
 });

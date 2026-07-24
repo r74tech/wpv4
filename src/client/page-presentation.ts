@@ -1,3 +1,5 @@
+import { formatDocumentTitle } from "../lib/document-title";
+
 type PagePresentation = {
 	title: string;
 	html: string;
@@ -7,6 +9,7 @@ type PagePresentation = {
 
 type PagePresentationTarget = {
 	replaceStyles: (styles: string[]) => void;
+	replaceDocumentTitle: (title: string) => void;
 	replaceTitle: (html: string, hidden: boolean) => void;
 	replaceContent: (html: string) => void;
 	replaceTags: (tags: string[]) => void;
@@ -27,6 +30,7 @@ export function commitPagePresentation(
 	target: PagePresentationTarget,
 ): void {
 	target.replaceStyles(presentation.styles);
+	target.replaceDocumentTitle(formatDocumentTitle(presentation.title));
 	target.replaceTitle(
 		presentation.title ? `<span>${escapeHtml(presentation.title)}</span>` : "",
 		presentation.title.length === 0,

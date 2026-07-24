@@ -1,6 +1,7 @@
 import type { FC, PropsWithChildren } from "hono/jsx";
 import { raw } from "hono/utils/html";
 import { getClientScriptPath } from "../client-manifest";
+import { formatDocumentTitle } from "../lib/document-title";
 
 type NavContent = {
 	html: string;
@@ -11,9 +12,10 @@ type Props = PropsWithChildren<{
 	sidebar: NavContent | null;
 	topbar: NavContent | null;
 	pageStyles?: string[];
+	title?: string;
 }>;
 
-export const WikidotShell: FC<Props> = ({ children, sidebar, topbar, pageStyles }) => {
+export const WikidotShell: FC<Props> = ({ children, sidebar, topbar, pageStyles, title = "" }) => {
 	const clientScript = getClientScriptPath("main");
 	const navigationStyles = [...(sidebar?.styles ?? []), ...(topbar?.styles ?? [])];
 	const resolvedPageStyles = pageStyles ?? [];
@@ -25,7 +27,7 @@ export const WikidotShell: FC<Props> = ({ children, sidebar, topbar, pageStyles 
 				<head>
 					<meta charset="UTF-8" />
 					<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-					<title>Wikitext Previewer v4</title>
+					<title>{formatDocumentTitle(title)}</title>
 					<link href="/static/style.css" rel="stylesheet" />
 					{navigationStyles.length > 0 && <style>{raw(navigationStyles.join("\n"))}</style>}
 					{resolvedPageStyles.length > 0 && (

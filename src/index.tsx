@@ -203,7 +203,7 @@ app.get("*", async (c) => {
 	});
 
 	return c.html(
-		<WikidotShell sidebar={sidebar} topbar={topbar} pageStyles={result.styles}>
+		<WikidotShell sidebar={sidebar} topbar={topbar} pageStyles={result.styles} title={page.title}>
 			<PageTitle title={page.title} />
 			<div id="page-content">{raw(result.html)}</div>
 			<PageTags tags={tagNames} />
