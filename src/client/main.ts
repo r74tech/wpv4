@@ -2,6 +2,7 @@ import { initWdprRuntime } from "@wdprlib/runtime";
 import type { WdprRuntime } from "@wdprlib/runtime";
 import { $, escapeAttr, escapeHtml, setHtml } from "./dom";
 import { normalizePagePath, shouldReloadPage } from "./navigation";
+import { buildPreviewRequest, isPreviewCategory } from "./preview";
 import {
 	clearHistoryState,
 	initHistory,
@@ -803,17 +804,17 @@ function setupPageForm() {
 	// action-area の data-new-type / data-edit-path でモード判定
 	const area = $("#action-area");
 	if (!area) return;
-	const newType = area.dataset.newType;
-	const editPath = area.dataset.editPath;
+	const newType = isPreviewCategory(area.dataset.newType) ? area.dataset.newType : null;
+	const editPath = area.dataset.editPath?.trim() || null;
 	const baseRevRaw = area.dataset.baseRev;
-	const isNew = newType === "public" || newType === "share" || newType === "private";
-	const isEdit = typeof editPath === "string" && editPath.length > 0;
+	const isNew = newType !== null;
+	const isEdit = editPath !== null;
 	if (!isNew && !isEdit) return;
 
 	$("#edit-save-button")?.addEventListener("click", async () => {
 		const body = readPageFormBody();
 
-		if (isNew) {
+		if (newType !== null) {
 			const res = await fetch("/api/page/new", {
 				method: "POST",
 				headers: { "Content-Type": "application/json", Origin: window.location.origin },
@@ -830,6 +831,7 @@ function setupPageForm() {
 			}
 			return;
 		}
+		if (editPath === null) return;
 
 		// edit モード
 		const baseRev = baseRevRaw && baseRevRaw.length > 0 ? Number(baseRevRaw) : null;
@@ -855,19 +857,29 @@ function setupPageForm() {
 	});
 
 	$("#edit-preview-button")?.addEventListener("click", async () => {
-		const src = ($("#edit-page-textarea") as HTMLTextAreaElement).value;
-		const title = ($("#edit-page-title") as HTMLInputElement).value;
+		const body = readPageFormBody();
+		const previewBody =
+			newType !== null
+				? buildPreviewRequest(body.source, body.tags, { mode: "new", category: newType })
+				: editPath !== null
+					? buildPreviewRequest(body.source, body.tags, {
+							mode: "edit",
+							pagePath: editPath,
+							getRenderedPagePath: () => renderedPagePath,
+						})
+					: null;
+		if (previewBody === null) return;
 		const res = await fetch("/api/preview", {
 			method: "POST",
 			headers: { "Content-Type": "application/json", Origin: window.location.origin },
-			body: JSON.stringify({ source: src }),
+			body: JSON.stringify(previewBody),
 		});
 		if (res.ok) {
 			const data = (await res.json()) as { html: string; styles: string[] };
 			injectStyles(data.styles);
-			setHtml($("#page-title"), title ? `<span>${escapeHtml(title)}</span>` : "");
+			setHtml($("#page-title"), body.title ? `<span>${escapeHtml(body.title)}</span>` : "");
 			setHtml($("#page-content"), data.html);
-			updatePageTags(readPageFormBody().tags);
+			updatePageTags(body.tags);
 			initRuntime();
 		}
 	});
@@ -889,7 +901,12 @@ function setupPageForm() {
 // --- 初期化 ---
 
 async function init() {
-	initHistory({ injectStyles, initRuntime, loadPage });
+	initHistory({
+		injectStyles,
+		initRuntime,
+		loadPage,
+		getRenderedPagePath: () => renderedPagePath,
+	});
 	setupEventHandlers();
 	const initialPagePath = getPagePathFromUrl();
 	renderedPagePath = initialPagePath ? normalizePagePath(initialPagePath) : null;

@@ -1,5 +1,6 @@
 import { diffArrays, diffLines } from "diff";
 import { $, escapeAttr, escapeHtml, setHtml } from "./dom";
+import { buildPreviewRequest } from "./preview";
 
 const HISTORY_PAGE_SIZE = 20;
 
@@ -7,6 +8,7 @@ type HistoryDependencies = {
 	injectStyles: (styles: string[]) => void;
 	initRuntime: () => void;
 	loadPage: (path: string) => void | Promise<void>;
+	getRenderedPagePath: () => string | null;
 };
 
 type RevisionResponse = {
@@ -19,6 +21,7 @@ type RevisionResponse = {
 	created_by_unix_name: string | null;
 	created_at: string | null;
 	page_path: string;
+	tags: string[];
 };
 
 type HistoryRevision = {
@@ -90,7 +93,13 @@ export async function showRevisionView(path: string, num: number) {
 	const previewRes = await fetch("/api/preview", {
 		method: "POST",
 		headers: { "Content-Type": "application/json", Origin: window.location.origin },
-		body: JSON.stringify({ source: data.source }),
+		body: JSON.stringify(
+			buildPreviewRequest(data.source, data.tags, {
+				mode: "revision",
+				pagePath: data.page_path,
+				getRenderedPagePath: () => deps?.getRenderedPagePath() ?? null,
+			}),
+		),
 	});
 	const rendered = previewRes.ok
 		? ((await previewRes.json()) as { html: string; styles: string[] })
