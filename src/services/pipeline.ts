@@ -9,6 +9,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { eq, and, ne, inArray, notInArray, desc, asc, sql, type SQL } from "drizzle-orm";
 import { pages, pageTags } from "@/db/schema";
 import { canViewPage, isUlidCategory, normalizeUlid, visibilityPolicy } from "@/lib/visibility";
+import { resolveLocalIncludeUnixName } from "@/lib/include-reference";
 import { normalizeWikidotCategoryName } from "@/lib/wikidot-name";
 import type { Bindings } from "@/types/env";
 
@@ -472,9 +473,8 @@ export async function renderWikitext(
 		page,
 		dataProvider: {
 			fetchInclude: async (pageRef) => {
-				if (pageRef.site) return null;
-				const [category, rawUnixName] = parsePagePath(pageRef.page);
-				const unixName = isUlidCategory(category) ? normalizeUlid(rawUnixName) : rawUnixName;
+				const unixName = resolveLocalIncludeUnixName(pageRef);
+				if (unixName === null) return null;
 				const result = await db
 					.select({ source: pages.source, category: pages.category })
 					.from(pages)

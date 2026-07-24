@@ -348,6 +348,25 @@ describe("renderWikitext pipeline adapter", () => {
 		expect(result.html).not.toContain("UNMATCHED_TAG");
 	});
 
+	test("normalizes local ULID include targets without relying on their category spelling", async () => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+		const ulid = "01arz3ndektsv4rrffq69g5fav";
+		sqlite.run(
+			`INSERT INTO pages (id, category, unix_name, source) VALUES (1, 'public', '${ulid}', 'ULID_INCLUDE')`,
+		);
+
+		const result = await renderWikitext(
+			[`[[include ${ulid.toUpperCase()}/offset/1]]`, `[[include docs:${ulid.toUpperCase()}]]`].join(
+				"\n",
+			),
+			createEnv(sqlite),
+			{ pageName: "start", category: "_default" },
+		);
+
+		expect(result.html.match(/ULID_INCLUDE/g)).toHaveLength(2);
+	});
+
 	test("passes urlPath to ListPages @URL query resolution", async () => {
 		const sqlite = createDatabase();
 		databases.push(sqlite);
