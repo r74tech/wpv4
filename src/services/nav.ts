@@ -23,5 +23,6 @@ export async function renderNav(
 		pageName: name,
 		category: "nav",
 		viewerId,
+		persistHtmlBlocks: true,
 	});
 }

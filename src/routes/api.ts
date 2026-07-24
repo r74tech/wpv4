@@ -87,6 +87,7 @@ api.get("/page/*", async (c) => {
 		// SPA から /api/page/<page-path>/offset/1/... の形で呼ばれる。
 		// pagePath はその全体（category:name + URL params）なので `/` を付けて渡す。
 		urlPath: `/${pagePath}`,
+		persistHtmlBlocks: true,
 	});
 
 	return c.json({
@@ -687,6 +688,7 @@ api.post("/preview", zValidator("json", previewSchema), async (c) => {
 		pageName: body.page_name,
 		category: body.category,
 		viewerId,
+		persistHtmlBlocks: false,
 	});
 	return c.json(result);
 });

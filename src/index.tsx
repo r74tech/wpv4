@@ -200,6 +200,7 @@ app.get("*", async (c) => {
 		tags: tagNames,
 		viewerId,
 		urlPath: c.req.path,
+		persistHtmlBlocks: true,
 	});
 
 	return c.html(

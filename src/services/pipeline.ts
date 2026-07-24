@@ -447,9 +447,8 @@ export async function renderWikitext(
 		category: string;
 		tags?: string[];
 		viewerId?: number | null;
-		// true のときだけ html-block を R2 に PUT する。
-		// save 系 (POST /api/page/new, PUT /api/page/*) のみ true。
-		// preview / GET / nav の read 系では false（URL 生成のみ）
+		// 保存済みsourceを扱う呼び出し元だけtrueにする。
+		// previewなど未保存sourceのrenderはfalseのままにしてR2へ公開しない。
 		persistHtmlBlocks?: boolean;
 		// Wikidot 形式の URL パス（例: "/private:01ks.../offset/1/page2_limit/1"）。
 		// @URL|default や urlAttrPrefix を含む ListPages のパラメータ解決に使う。
@@ -499,16 +498,30 @@ export async function renderWikitext(
 	const isPrivatePage = pagePolicy.visibility === "private";
 	const r2Prefix = isPrivatePage ? "private--html" : "local--html";
 	const filesDomain = env.FILES_DOMAIN.replace(/\/$/, "");
+	const htmlBlockPersistence = new Map<string, Promise<void>>();
+	const persistHtmlBlock = (key: string, content: string): Promise<void> => {
+		const pending = htmlBlockPersistence.get(key);
+		if (pending) return pending;
+
+		const persistence = (async () => {
+			if (await env.R2.head(key)) return;
+			await env.R2.put(key, content, {
+				onlyIf: { etagDoesNotMatch: "*" },
+				httpMetadata: { contentType: "text/html; charset=utf-8" },
+			});
+		})();
+		htmlBlockPersistence.set(key, persistence);
+		return persistence;
+	};
 	const rendered = await renderProcessedWikitext(document, {
 		styleMode: "separate",
 		resolvers: {
 			resolvePageExistence: (requestedPages) => findExistingPages(db, requestedPages, viewerId),
 			resolveHtmlBlockUrl: async ({ content }) => {
 				const hash = await sha256Hex(content);
+				const key = `${r2Prefix}/${options.pageName}/${hash}`;
 				if (options.persistHtmlBlocks) {
-					await env.R2.put(`${r2Prefix}/${options.pageName}/${hash}`, content, {
-						httpMetadata: { contentType: "text/html; charset=utf-8" },
-					});
+					await persistHtmlBlock(key, content);
 				}
 				if (isPrivatePage) {
 					return buildPrivateHtmlBlockUrl(
@@ -518,7 +531,7 @@ export async function renderWikitext(
 						env.FILES_URL_SECRET,
 					);
 				}
-				return `${filesDomain}/local--html/${options.pageName}/${hash}`;
+				return `${filesDomain}/${key}`;
 			},
 		},
 	});

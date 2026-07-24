@@ -16,7 +16,14 @@ type QueryExecution = {
 type R2PutCall = {
 	key: string;
 	value: unknown;
-	options: unknown;
+	options: R2PutOptions;
+};
+
+type R2State = {
+	keys: Set<string>;
+	headCalls: string[];
+	putCalls: R2PutCall[];
+	successfulWrites: number;
 };
 
 function createD1Adapter(sqlite: Database, executions: QueryExecution[]): D1Database {
@@ -61,22 +68,34 @@ function createDatabase(): Database {
 	return sqlite;
 }
 
-function createR2Recorder(calls: R2PutCall[]): R2Bucket {
+function createR2State(): R2State {
+	return { keys: new Set(), headCalls: [], putCalls: [], successfulWrites: 0 };
+}
+
+function createR2Recorder(state: R2State): R2Bucket {
 	return {
-		async put(key: string, value: unknown, options: unknown) {
-			calls.push({ key, value, options });
-			return null;
+		async head(key: string) {
+			state.headCalls.push(key);
+			return state.keys.has(key) ? ({ key } as R2Object) : null;
+		},
+		async put(key: string, value: unknown, options: R2PutOptions) {
+			state.putCalls.push({ key, value, options });
+			if (options.onlyIf instanceof Headers) throw new Error("Expected object R2 condition");
+			if (options.onlyIf?.etagDoesNotMatch === "*" && state.keys.has(key)) return null;
+			state.keys.add(key);
+			state.successfulWrites++;
+			return { key } as R2Object;
 		},
 	} as unknown as R2Bucket;
 }
 
 function createEnv(
 	sqlite: Database,
-	options: { executions?: QueryExecution[]; r2Calls?: R2PutCall[] } = {},
+	options: { executions?: QueryExecution[]; r2State?: R2State } = {},
 ): Bindings {
 	return {
 		DB: createD1Adapter(sqlite, options.executions ?? []),
-		R2: createR2Recorder(options.r2Calls ?? []),
+		R2: createR2Recorder(options.r2State ?? createR2State()),
 		OAUTH_PROVIDER_URL: "",
 		CLIENT_ID: "",
 		CLIENT_SECRET: "",
@@ -205,23 +224,29 @@ describe("renderWikitext pipeline adapter", () => {
 	test("preserves public and private html-block storage and URL behavior", async () => {
 		const sqlite = createDatabase();
 		databases.push(sqlite);
-		const publicCalls: R2PutCall[] = [];
-		const privateCalls: R2PutCall[] = [];
-		const previewCalls: R2PutCall[] = [];
+		const publicState = createR2State();
+		const privateState = createR2State();
+		const previewState = createR2State();
 		const source = "[[html]]<p>pipeline</p>[[/html]]";
 
-		const preview = await renderWikitext(source, createEnv(sqlite, { r2Calls: previewCalls }), {
+		const preview = await renderWikitext(source, createEnv(sqlite, { r2State: previewState }), {
 			pageName: "preview-page",
 			category: "public",
 		});
-		const publicResult = await renderWikitext(source, createEnv(sqlite, { r2Calls: publicCalls }), {
+		const publicEnv = createEnv(sqlite, { r2State: publicState });
+		const publicResult = await renderWikitext(source, publicEnv, {
+			pageName: "public-page",
+			category: "public",
+			persistHtmlBlocks: true,
+		});
+		await renderWikitext(source, publicEnv, {
 			pageName: "public-page",
 			category: "public",
 			persistHtmlBlocks: true,
 		});
 		const privateResult = await renderWikitext(
 			source,
-			createEnv(sqlite, { r2Calls: privateCalls }),
+			createEnv(sqlite, { r2State: privateState }),
 			{
 				pageName: "private-page",
 				category: "private",
@@ -229,21 +254,69 @@ describe("renderWikitext pipeline adapter", () => {
 			},
 		);
 
-		expect(previewCalls).toEqual([]);
+		expect(previewState.headCalls).toEqual([]);
+		expect(previewState.putCalls).toEqual([]);
 		expect(preview.html).toMatch(
 			/src="https:\/\/files\.example\.com\/local--html\/preview-page\/[a-f0-9]{64}"/,
 		);
-		expect(publicCalls).toHaveLength(1);
-		expect(publicCalls[0]!.key).toMatch(/^local--html\/public-page\/[a-f0-9]{64}$/);
-		expect(publicCalls[0]!.value).toBe("<p>pipeline</p>");
-		expect(publicResult.html).toContain(`src="https://files.example.com/${publicCalls[0]!.key}"`);
+		expect(publicState.headCalls).toHaveLength(2);
+		expect(publicState.putCalls).toHaveLength(1);
+		expect(publicState.successfulWrites).toBe(1);
+		expect(publicState.putCalls[0]!.key).toMatch(/^local--html\/public-page\/[a-f0-9]{64}$/);
+		expect(publicState.putCalls[0]!.value).toBe("<p>pipeline</p>");
+		expect(publicState.putCalls[0]!.options.onlyIf).toEqual({ etagDoesNotMatch: "*" });
+		expect(publicResult.html).toContain(
+			`src="https://files.example.com/${publicState.putCalls[0]!.key}"`,
+		);
 
-		expect(privateCalls).toHaveLength(1);
-		expect(privateCalls[0]!.key).toMatch(/^private--html\/private-page\/[a-f0-9]{64}$/);
-		expect(privateCalls[0]!.value).toBe("<p>pipeline</p>");
+		expect(privateState.putCalls).toHaveLength(1);
+		expect(privateState.putCalls[0]!.key).toMatch(/^private--html\/private-page\/[a-f0-9]{64}$/);
+		expect(privateState.putCalls[0]!.value).toBe("<p>pipeline</p>");
 		expect(privateResult.html).toMatch(
 			/src="https:\/\/files\.example\.com\/private--html\/private-page\/[a-f0-9]{64}\?ukey=[a-f0-9]{64}&amp;exp=\d+"/,
 		);
+	});
+
+	test("deduplicates html-block persistence within and across concurrent renders", async () => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+		const duplicateState = createR2State();
+		const duplicateSource = ["[[html]]<p>same</p>[[/html]]", "[[html]]<p>same</p>[[/html]]"].join(
+			"\n",
+		);
+
+		await renderWikitext(duplicateSource, createEnv(sqlite, { r2State: duplicateState }), {
+			pageName: "duplicate-page",
+			category: "public",
+			persistHtmlBlocks: true,
+		});
+
+		expect(duplicateState.headCalls).toHaveLength(1);
+		expect(duplicateState.putCalls).toHaveLength(1);
+
+		const concurrentState = createR2State();
+		const concurrentEnv = createEnv(sqlite, { r2State: concurrentState });
+		await Promise.all([
+			renderWikitext(duplicateSource, concurrentEnv, {
+				pageName: "concurrent-page",
+				category: "public",
+				persistHtmlBlocks: true,
+			}),
+			renderWikitext(duplicateSource, concurrentEnv, {
+				pageName: "concurrent-page",
+				category: "public",
+				persistHtmlBlocks: true,
+			}),
+		]);
+
+		expect(concurrentState.successfulWrites).toBe(1);
+		expect(
+			concurrentState.putCalls.every(
+				(call) =>
+					!(call.options.onlyIf instanceof Headers) &&
+					call.options.onlyIf?.etagDoesNotMatch === "*",
+			),
+		).toBe(true);
 	});
 
 	test("applies include visibility and page tags through the processing context", async () => {
