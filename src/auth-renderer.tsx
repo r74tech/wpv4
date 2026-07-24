@@ -1,9 +1,13 @@
 import { jsxRenderer } from "hono/jsx-renderer";
+import { raw } from "hono/utils/html";
 import { getClientScriptPath } from "./client-manifest";
 import { APPLICATION_TITLE } from "./lib/document-title";
+import { renderAuthUserNav } from "./lib/shell-ui";
+import type { AppEnv } from "./types/env";
 
-export const authRenderer = jsxRenderer(({ children }) => {
+export const authRenderer = jsxRenderer<AppEnv>(({ children }, c) => {
 	const clientScript = getClientScriptPath("auth");
+	const user = c.get("user");
 	return (
 		<html lang="ja">
 			<head>
@@ -18,7 +22,9 @@ export const authRenderer = jsxRenderer(({ children }) => {
 						<a href="/" class="auth-logo">
 							Wikitext Previewer
 						</a>
-						<nav class="auth-nav" id="auth-user-nav" />
+						<nav class="auth-nav" id="auth-user-nav">
+							{raw(renderAuthUserNav(user))}
+						</nav>
 					</header>
 					<main class="auth-main">{children}</main>
 				</div>

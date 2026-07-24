@@ -4,7 +4,7 @@ import { cors } from "hono/cors";
 import { drizzle } from "drizzle-orm/d1";
 import { eq, and } from "drizzle-orm";
 import { pages, pageTags } from "./db/schema";
-import { renderWikitext, parsePagePath } from "./services/pipeline";
+import { renderWikitext, parsePagePath, formatPagePath } from "./services/pipeline";
 import { renderNav } from "./services/nav";
 import { api } from "./routes/api";
 import { auth } from "./routes/auth";
@@ -13,7 +13,14 @@ import { passkeyApi } from "./routes/passkey-api";
 import { WikidotShell } from "./components/WikidotShell";
 import { PageTitle } from "./components/PageTitle";
 import { resolveSession } from "./middleware/session";
-import { canViewPage, isUlidCategory, normalizeUlid } from "./lib/visibility";
+import {
+	canEditPage,
+	canManagePage,
+	canViewPage,
+	getVisibility,
+	isUlidCategory,
+	normalizeUlid,
+} from "./lib/visibility";
 import type { AppEnv } from "./types/env";
 
 const app = new Hono<AppEnv>();
@@ -57,7 +64,7 @@ app.get("/new", async (c) => {
 
 	// Wikidot のページ編集画面構造を踏襲（既存CSSを活かすため）
 	return c.html(
-		<WikidotShell sidebar={sidebar} topbar={topbar}>
+		<WikidotShell sidebar={sidebar} topbar={topbar} user={viewer}>
 			<PageTitle title="" />
 			<div id="page-content" />
 			<div id="action-area" style="display: block;" data-new-type={type}>
@@ -148,7 +155,8 @@ app.get("*", async (c) => {
 	// share/private の unix_name は小文字統一（WDPR renderer の toLowerCase() と整合）
 	const unixName = isUlidCategory(category) ? normalizeUlid(unixNameRaw) : unixNameRaw;
 
-	const viewerId = c.get("user")?.id ?? null;
+	const viewer = c.get("user");
+	const viewerId = viewer?.id ?? null;
 	const db = drizzle(c.env.DB);
 
 	const [pageRow, sidebar, topbar] = await Promise.all([
@@ -165,7 +173,7 @@ app.get("*", async (c) => {
 
 	if (!page) {
 		return c.html(
-			<WikidotShell sidebar={sidebar} topbar={topbar}>
+			<WikidotShell sidebar={sidebar} topbar={topbar} user={viewer}>
 				<PageTitle title="" />
 				<div id="page-content">
 					<p>Page not found.</p>
@@ -177,7 +185,7 @@ app.get("*", async (c) => {
 
 	if (!canViewPage(page, viewerId)) {
 		return c.html(
-			<WikidotShell sidebar={sidebar} topbar={topbar}>
+			<WikidotShell sidebar={sidebar} topbar={topbar} user={viewer}>
 				<PageTitle title="Forbidden" />
 				<div id="page-content">
 					<p>This page is private.</p>
@@ -203,7 +211,23 @@ app.get("*", async (c) => {
 	});
 
 	return c.html(
-		<WikidotShell sidebar={sidebar} topbar={topbar} pageStyles={result.styles} title={page.title}>
+		<WikidotShell
+			sidebar={sidebar}
+			topbar={topbar}
+			pageStyles={result.styles}
+			title={page.title}
+			user={viewer}
+			pageActions={{
+				path: formatPagePath(category, unixName),
+				page: {
+					category,
+					unix_name: unixName,
+					visibility: getVisibility(page.category, page.unixName),
+					can_edit: canEditPage(page, viewerId),
+					can_manage: canManagePage(page, viewerId),
+				},
+			}}
+		>
 			<PageTitle title={page.title} />
 			<div id="page-content">{raw(result.html)}</div>
 			<PageTags tags={tagNames} />

@@ -2,6 +2,13 @@ import type { FC, PropsWithChildren } from "hono/jsx";
 import { raw } from "hono/utils/html";
 import { getClientScriptPath } from "../client-manifest";
 import { formatDocumentTitle } from "../lib/document-title";
+import {
+	renderLoginStatus,
+	renderPageOptions,
+	renderSidebarActions,
+	type PageActionState,
+	type ShellUser,
+} from "../lib/shell-ui";
 
 type NavContent = {
 	html: string;
@@ -13,12 +20,28 @@ type Props = PropsWithChildren<{
 	topbar: NavContent | null;
 	pageStyles?: string[];
 	title?: string;
+	user: ShellUser | null;
+	pageActions?: {
+		path: string;
+		page: PageActionState;
+	};
 }>;
 
-export const WikidotShell: FC<Props> = ({ children, sidebar, topbar, pageStyles, title = "" }) => {
+export const WikidotShell: FC<Props> = ({
+	children,
+	sidebar,
+	topbar,
+	pageStyles,
+	title = "",
+	user,
+	pageActions,
+}) => {
 	const clientScript = getClientScriptPath("main");
 	const navigationStyles = [...(sidebar?.styles ?? []), ...(topbar?.styles ?? [])];
 	const resolvedPageStyles = pageStyles ?? [];
+	const pageOptions = pageActions
+		? renderPageOptions(user !== null, pageActions.path, pageActions.page)
+		: "";
 
 	return (
 		<>
@@ -63,9 +86,7 @@ export const WikidotShell: FC<Props> = ({ children, sidebar, topbar, pageStyles,
 											</form>
 										</div>
 										<div id="top-bar">{raw(topbar?.html ?? "")}</div>
-										<div id="login-status">
-											<span />
-										</div>
+										<div id="login-status">{raw(renderLoginStatus(user))}</div>
 										<div id="header-extra-div-1">
 											<span />
 										</div>
@@ -78,7 +99,7 @@ export const WikidotShell: FC<Props> = ({ children, sidebar, topbar, pageStyles,
 									</div>
 									<div id="content-wrap">
 										<div id="side-bar">
-											<div id="side-bar-actions" />
+											<div id="side-bar-actions">{raw(renderSidebarActions(user !== null))}</div>
 											<div>{raw(sidebar?.html ?? "")}</div>
 										</div>
 										<div id="main-content">
@@ -86,7 +107,9 @@ export const WikidotShell: FC<Props> = ({ children, sidebar, topbar, pageStyles,
 											<div id="page-info-break" />
 											<div id="page-options-container">
 												<div id="page-info" />
-												<div id="page-options-bottom" class="page-options-bottom" />
+												<div id="page-options-bottom" class="page-options-bottom">
+													{raw(pageOptions)}
+												</div>
 											</div>
 											<div id="page-options-area-bottom" />
 											<div id="action-area" />

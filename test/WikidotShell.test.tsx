@@ -13,6 +13,7 @@ async function renderShell(title?: string) {
 			topbar: { html: "<p>top</p>", styles: [".top { color: green; }"] },
 			pageStyles: [".page { color: red; }"],
 			title,
+			user: null,
 		}),
 	);
 }
@@ -52,11 +53,67 @@ describe("WikidotShell styles", () => {
 				children: "content",
 				sidebar: { html: "", styles: [".side { color: blue; }"] },
 				topbar: null,
+				user: null,
 			}),
 		);
 
 		expect(html).not.toContain('id="wdpr-page-styles"');
 		expect(html).toContain(".side { color: blue; }");
+	});
+});
+
+describe("WikidotShell initial UI", () => {
+	test("renders signed-out login and sidebar UI inside the existing placeholders", async () => {
+		const html = await renderShell();
+
+		expect(html).toContain(
+			'<div id="login-status"><a href="/auth/login" id="login-link">Sign in / Create account</a></div>',
+		);
+		expect(html).toContain('<div id="side-bar-actions"><div class="side-block">');
+		expect(html).toContain("<p>Account</p>");
+		expect(html).toContain('<body id="html-body">');
+		expect(html).not.toContain("data-authenticated");
+		expect(html).not.toContain("data-ssr");
+	});
+
+	test("renders authenticated login, sidebar, and page options", async () => {
+		const html = String(
+			await WikidotShell({
+				children: "content",
+				sidebar: null,
+				topbar: null,
+				user: { name: "Owner" },
+				pageActions: {
+					path: "private:01arz3ndektsv4rrffq69g5fav",
+					page: {
+						category: "private",
+						unix_name: "01arz3ndektsv4rrffq69g5fav",
+						visibility: "private",
+						can_edit: true,
+						can_manage: true,
+					},
+				},
+			}),
+		);
+
+		expect(html).toContain('<span class="printuser">Owner</span>');
+		expect(html).toContain('id="btn-logout"');
+		expect(html).toContain('<a href="/new?type=public">+ Public</a>');
+		expect(html).toContain('data-action="edit"');
+		expect(html).toContain('data-action="toggle-visibility"');
+	});
+
+	test("keeps page options empty when no page action state is supplied", async () => {
+		const html = String(
+			await WikidotShell({
+				children: "content",
+				sidebar: null,
+				topbar: null,
+				user: { name: "Owner" },
+			}),
+		);
+
+		expect(html).toContain('<div id="page-options-bottom" class="page-options-bottom"></div>');
 	});
 });
 
