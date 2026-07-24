@@ -16,6 +16,10 @@
 	letter-spacing: unset;
 }
 
+#page-title[hidden] {
+	display: none;
+}
+
 .page-source pre {
 	white-space: pre-wrap;
 	word-wrap: break-word;

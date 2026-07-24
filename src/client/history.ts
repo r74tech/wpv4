@@ -133,7 +133,9 @@ export async function showRevisionView(path: string, num: number) {
 		`</div>`;
 
 	deps?.injectStyles(rendered.styles);
-	setHtml($("#page-title"), `<span>${escapeHtml(data.title)}</span>`);
+	const pageTitle = $("#page-title");
+	setHtml(pageTitle, data.title ? `<span>${escapeHtml(data.title)}</span>` : "");
+	pageTitle?.toggleAttribute("hidden", !data.title);
 	setHtml($("#page-content"), versionInfo + rendered.html);
 	deps?.initRuntime();
 	$("#btn-close-version-info")?.addEventListener("click", () => {

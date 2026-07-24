@@ -11,6 +11,7 @@ import { auth } from "./routes/auth";
 import { user } from "./routes/user";
 import { passkeyApi } from "./routes/passkey-api";
 import { WikidotShell } from "./components/WikidotShell";
+import { PageTitle } from "./components/PageTitle";
 import { resolveSession } from "./middleware/session";
 import { canViewPage, isUlidCategory, normalizeUlid } from "./lib/visibility";
 import type { AppEnv } from "./types/env";
@@ -57,7 +58,7 @@ app.get("/new", async (c) => {
 	// Wikidot のページ編集画面構造を踏襲（既存CSSを活かすため）
 	return c.html(
 		<WikidotShell sidebar={sidebar} topbar={topbar}>
-			<div id="page-title" />
+			<PageTitle title="" />
 			<div id="page-content" />
 			<div id="action-area" style="display: block;" data-new-type={type}>
 				<h1>Create a new {type} page</h1>
@@ -165,7 +166,7 @@ app.get("*", async (c) => {
 	if (!page) {
 		return c.html(
 			<WikidotShell sidebar={sidebar} topbar={topbar}>
-				<div id="page-title" />
+				<PageTitle title="" />
 				<div id="page-content">
 					<p>Page not found.</p>
 				</div>
@@ -177,9 +178,7 @@ app.get("*", async (c) => {
 	if (!canViewPage(page, viewerId)) {
 		return c.html(
 			<WikidotShell sidebar={sidebar} topbar={topbar}>
-				<div id="page-title">
-					<span>Forbidden</span>
-				</div>
+				<PageTitle title="Forbidden" />
 				<div id="page-content">
 					<p>This page is private.</p>
 				</div>
@@ -205,9 +204,7 @@ app.get("*", async (c) => {
 
 	return c.html(
 		<WikidotShell sidebar={sidebar} topbar={topbar} pageStyles={result.styles}>
-			<div id="page-title">
-				<span>{page.title}</span>
-			</div>
+			<PageTitle title={page.title} />
 			<div id="page-content">{raw(result.html)}</div>
 			<PageTags tags={tagNames} />
 		</WikidotShell>,
