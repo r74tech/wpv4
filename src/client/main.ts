@@ -850,7 +850,7 @@ async function init() {
 	setupEventHandlers();
 	const initialPagePath = getPagePathFromUrl();
 	renderedPagePath = initialPagePath ? normalizePagePath(initialPagePath) : null;
-	authenticated = $("#btn-logout") !== null;
+	authenticated = $("#login-status #btn-logout") !== null;
 	setupAccountOptions();
 	await Promise.all([loadSidebar(), loadTopbar()]);
 
