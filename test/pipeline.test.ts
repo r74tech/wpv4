@@ -23,7 +23,9 @@ type R2State = {
 	keys: Set<string>;
 	headCalls: string[];
 	putCalls: R2PutCall[];
+	deleteCalls: string[];
 	successfulWrites: number;
+	onSuccessfulPut?: () => void;
 };
 
 function createD1Adapter(sqlite: Database, executions: QueryExecution[]): D1Database {
@@ -69,7 +71,7 @@ function createDatabase(): Database {
 }
 
 function createR2State(): R2State {
-	return { keys: new Set(), headCalls: [], putCalls: [], successfulWrites: 0 };
+	return { keys: new Set(), headCalls: [], putCalls: [], deleteCalls: [], successfulWrites: 0 };
 }
 
 function createR2Recorder(state: R2State): R2Bucket {
@@ -84,7 +86,14 @@ function createR2Recorder(state: R2State): R2Bucket {
 			if (options.onlyIf?.etagDoesNotMatch === "*" && state.keys.has(key)) return null;
 			state.keys.add(key);
 			state.successfulWrites++;
+			state.onSuccessfulPut?.();
 			return { key } as R2Object;
+		},
+		async delete(keys: string | string[]) {
+			for (const key of typeof keys === "string" ? [keys] : keys) {
+				state.deleteCalls.push(key);
+				state.keys.delete(key);
+			}
 		},
 	} as unknown as R2Bucket;
 }
@@ -221,9 +230,38 @@ describe("renderWikitext pipeline adapter", () => {
 		expect(pageExistenceQueries(executions)).toEqual([]);
 	});
 
+	test("uses rendered page-link normalization for existence lookup", async () => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+		sqlite.run(`
+			INSERT INTO pages (id, category, unix_name) VALUES (1, '_default', 'foo');
+		`);
+
+		const missingResult = await renderWikitext("[[[foo/bar]]]", createEnv(sqlite), {
+			pageName: "start",
+			category: "_default",
+		});
+		expect(await inspectLinks(missingResult.html)).toEqual([
+			{ href: "/foo-bar", className: "newpage" },
+		]);
+
+		sqlite.run("INSERT INTO pages (id, category, unix_name) VALUES (2, '_default', 'foo-bar')");
+		const existingResult = await renderWikitext("[[[foo/bar]]]", createEnv(sqlite), {
+			pageName: "start",
+			category: "_default",
+		});
+
+		expect(await inspectLinks(existingResult.html)).toEqual([{ href: "/foo-bar", className: "" }]);
+	});
+
 	test("preserves public and private html-block storage and URL behavior", async () => {
 		const sqlite = createDatabase();
 		databases.push(sqlite);
+		sqlite.run(`
+			INSERT INTO pages (id, category, unix_name) VALUES
+				(1, 'public', 'public-page'),
+				(2, 'private', 'private-page');
+		`);
 		const publicState = createR2State();
 		const privateState = createR2State();
 		const previewState = createR2State();
@@ -277,9 +315,34 @@ describe("renderWikitext pipeline adapter", () => {
 		);
 	});
 
+	test("removes a stale public html-block write after visibility becomes private", async () => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+		sqlite.run("INSERT INTO pages (id, category, unix_name) VALUES (1, 'public', 'race-page')");
+		const state = createR2State();
+		state.onSuccessfulPut = () => {
+			sqlite.run("UPDATE pages SET category = 'private' WHERE id = 1");
+		};
+
+		await renderWikitext("[[html]]<p>race</p>[[/html]]", createEnv(sqlite, { r2State: state }), {
+			pageName: "race-page",
+			category: "public",
+			persistHtmlBlocks: true,
+		});
+
+		expect(state.successfulWrites).toBe(1);
+		expect(state.deleteCalls).toEqual([state.putCalls[0]!.key]);
+		expect(state.keys).toEqual(new Set());
+	});
+
 	test("deduplicates html-block persistence within and across concurrent renders", async () => {
 		const sqlite = createDatabase();
 		databases.push(sqlite);
+		sqlite.run(`
+			INSERT INTO pages (id, category, unix_name) VALUES
+				(1, 'public', 'duplicate-page'),
+				(2, 'public', 'concurrent-page');
+		`);
 		const duplicateState = createR2State();
 		const duplicateSource = ["[[html]]<p>same</p>[[/html]]", "[[html]]<p>same</p>[[/html]]"].join(
 			"\n",

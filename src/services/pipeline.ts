@@ -136,8 +136,18 @@ const HIDDEN_TAG_PREFIX = "_";
 
 type Db = ReturnType<typeof drizzle>;
 
+function normalizePageLinkTarget(page: string): string {
+	let normalized = page.toLowerCase();
+	if (normalized.includes(":")) normalized = normalized.replace(/:\s+/g, ":");
+	if (/\s/.test(normalized)) normalized = normalized.replace(/\s+/g, "-").trim();
+	if (!normalized.startsWith("/") && normalized.includes("/")) {
+		normalized = normalized.replace(/\//g, "-");
+	}
+	return normalized.startsWith("/") ? normalized.slice(1) : normalized;
+}
+
 function normalizePageLookup(page: string): { canonical: string; unixName: string } {
-	const [category, rawUnixName] = parsePagePath(page);
+	const [category, rawUnixName] = parsePagePath(normalizePageLinkTarget(page));
 	const unixName = isUlidCategory(category) ? normalizeUlid(rawUnixName) : rawUnixName;
 	return { canonical: formatPagePath(category, unixName), unixName };
 }
@@ -499,16 +509,18 @@ export async function renderWikitext(
 	const r2Prefix = isPrivatePage ? "private--html" : "local--html";
 	const filesDomain = env.FILES_DOMAIN.replace(/\/$/, "");
 	const htmlBlockPersistence = new Map<string, Promise<void>>();
+	const newlyPersistedHtmlBlockKeys = new Set<string>();
 	const persistHtmlBlock = (key: string, content: string): Promise<void> => {
 		const pending = htmlBlockPersistence.get(key);
 		if (pending) return pending;
 
 		const persistence = (async () => {
 			if (await env.R2.head(key)) return;
-			await env.R2.put(key, content, {
+			const stored = await env.R2.put(key, content, {
 				onlyIf: { etagDoesNotMatch: "*" },
 				httpMetadata: { contentType: "text/html; charset=utf-8" },
 			});
+			if (stored !== null) newlyPersistedHtmlBlockKeys.add(key);
 		})();
 		htmlBlockPersistence.set(key, persistence);
 		return persistence;
@@ -535,6 +547,19 @@ export async function renderWikitext(
 			},
 		},
 	});
+	if (newlyPersistedHtmlBlockKeys.size > 0) {
+		const currentPage = await db
+			.select({ category: pages.category })
+			.from(pages)
+			.where(eq(pages.unixName, options.pageName))
+			.limit(1);
+		const currentIsPrivate = currentPage[0]
+			? visibilityPolicy(currentPage[0].category).visibility === "private"
+			: null;
+		if (currentIsPrivate !== isPrivatePage) {
+			await env.R2.delete([...newlyPersistedHtmlBlockKeys]);
+		}
+	}
 
 	return { html: rendered.html, styles: rendered.styles };
 }
