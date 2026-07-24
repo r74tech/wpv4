@@ -6,6 +6,12 @@ import { buildPreviewRequest, isPreviewCategory } from "./preview";
 import { commitPagePresentation } from "./page-presentation";
 import { formatDocumentTitle } from "../lib/document-title";
 import {
+	renderLoginStatus,
+	renderPageOptions,
+	renderSidebarActions,
+	type PageActionState,
+} from "../lib/shell-ui";
+import {
 	clearHistoryState,
 	initHistory,
 	rerenderHistoryPage,
@@ -18,16 +24,11 @@ import {
 
 // --- 型定義 ---
 
-type PageResponse = {
-	category: string;
-	unix_name: string;
+type PageResponse = PageActionState & {
 	title: string;
 	html: string;
 	styles: string[];
 	tags: string[];
-	visibility: "public" | "share" | "private";
-	can_edit: boolean;
-	can_manage: boolean;
 };
 
 type ReferencedBy = {
@@ -36,20 +37,10 @@ type ReferencedBy = {
 	title: string;
 };
 
-type UserResponse = {
-	authenticated: boolean;
-	user?: {
-		id: number;
-		wikidotId: number;
-		name: string;
-		unixName: string;
-	};
-};
-
 // --- 状態 ---
 
 let runtime: WdprRuntime | null = null;
-let currentUser: UserResponse | null = null;
+let authenticated = false;
 let renderedPagePath: string | null = null;
 
 // --- ページ読み込み ---
@@ -166,37 +157,7 @@ function clearPageOptions() {
 function updatePageOptions(path: string, page: PageResponse) {
 	const options = $(".page-options-bottom");
 	if (!options) return;
-
-	if (!currentUser?.authenticated) {
-		setHtml(options, "");
-		return;
-	}
-
-	// サーバー判定済みフラグに従ってボタンを出す
-	const parts: string[] = [];
-	if (page.can_edit) {
-		parts.push(`<a href="javascript:;" data-action="edit" data-path="${path}">Edit</a>`);
-	}
-	parts.push(`<a href="javascript:;" data-action="source" data-path="${path}">Source</a>`);
-	parts.push(`<a href="javascript:;" data-action="history" data-path="${path}">History</a>`);
-
-	// 作成者には現状以外の2つへの Toggle ボタンを出す
-	if (page.can_manage) {
-		const all: Array<"public" | "share" | "private"> = ["public", "share", "private"];
-		// can_manage は ULID 採番カテゴリのみ true なので、現 path は必ず `${category}:${ulid}`
-		const currentPath = `${page.category}:${page.unix_name}`;
-		for (const target of all) {
-			if (target === page.visibility) continue;
-			parts.push(
-				`<a href="javascript:;" data-action="toggle-visibility"` +
-					` data-ulid="${page.unix_name}" data-target="${target}"` +
-					` data-current-path="${escapeAttr(currentPath)}"` +
-					` data-current-category="${escapeAttr(page.visibility)}">Make ${target}</a>`,
-			);
-		}
-	}
-
-	setHtml(options, parts.join(""));
+	setHtml(options, renderPageOptions(authenticated, path, page));
 }
 
 function renderPageTags(tags: string[]): string {
@@ -271,71 +232,30 @@ async function loadTopbar() {
 
 // --- 認証状態 ---
 
-async function loadAuthStatus() {
-	try {
-		const res = await fetch("/api/me");
-		currentUser = await res.json();
-		updateLoginStatus();
-	} catch {
-		currentUser = { authenticated: false };
-	}
+function setupAccountOptions() {
+	const topBtn = $("#account-topbutton");
+	const optionsDiv = $("#account-options");
+	if (!topBtn || !optionsDiv) return;
+
+	optionsDiv.style.display = "none";
+	topBtn.addEventListener("click", () => {
+		optionsDiv.style.display = optionsDiv.style.display === "none" ? "block" : "none";
+	});
 }
 
-function updateLoginStatus() {
+function showSignedOutStatus() {
 	const loginStatus = $("#login-status");
 	if (!loginStatus) return;
 
-	if (currentUser?.authenticated && currentUser.user) {
-		const name = escapeHtml(currentUser.user.name);
-		setHtml(
-			loginStatus,
-			`<span class="printuser">${name}</span>` +
-				` | <a id="account-topbutton" href="javascript:;">▼</a>` +
-				`<div id="account-options"><ul>` +
-				`<li><a href="/user/settings">Settings</a></li>` +
-				`<li><a href="/user/activities">Activities</a></li>` +
-				`<li><a href="javascript:;" id="btn-logout">Sign out</a></li>` +
-				`</ul></div>`,
-		);
-
-		// ▼ トグル
-		const topBtn = $("#account-topbutton");
-		const optionsDiv = $("#account-options");
-		if (topBtn && optionsDiv) {
-			optionsDiv.style.display = "none";
-			topBtn.addEventListener("click", () => {
-				optionsDiv.style.display = optionsDiv.style.display === "none" ? "block" : "none";
-			});
-		}
-	} else {
-		setHtml(loginStatus, `<a href="/auth/login" id="login-link">Sign in / Create account</a>`);
-	}
+	authenticated = false;
+	setHtml(loginStatus, renderLoginStatus(null));
 	updateSidebarActions();
 }
 
 function updateSidebarActions() {
 	const actions = $("#side-bar-actions");
 	if (!actions) return;
-	if (currentUser?.authenticated) {
-		setHtml(
-			actions,
-			`<div class="side-block">` +
-				`<div class="heading"><p>New page</p></div>` +
-				`<div class="menu-item"><a href="/new?type=public">+ Public</a></div>` +
-				`<div class="menu-item"><a href="/new?type=share">+ Share</a></div>` +
-				`<div class="menu-item"><a href="/new?type=private">+ Private</a></div>` +
-				`</div>`,
-		);
-	} else {
-		// 未ログイン時もサイドバーは Wikidot side-block 構造で揃え、 Sign in リンクを出す。
-		setHtml(
-			actions,
-			`<div class="side-block">` +
-				`<div class="heading"><p>Account</p></div>` +
-				`<div class="menu-item"><a href="/auth/login">Sign in / Create account</a></div>` +
-				`</div>`,
-		);
-	}
+	setHtml(actions, renderSidebarActions(authenticated));
 }
 
 // --- エディタ ---
@@ -563,8 +483,7 @@ function setupEventHandlers() {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 			});
-			currentUser = { authenticated: false };
-			updateLoginStatus();
+			showSignedOutStatus();
 			const path2 = getPagePathFromUrl();
 			if (path2) loadPage(path2);
 		}
@@ -931,7 +850,9 @@ async function init() {
 	setupEventHandlers();
 	const initialPagePath = getPagePathFromUrl();
 	renderedPagePath = initialPagePath ? normalizePagePath(initialPagePath) : null;
-	await Promise.all([loadAuthStatus(), loadSidebar(), loadTopbar()]);
+	authenticated = $("#btn-logout") !== null;
+	setupAccountOptions();
+	await Promise.all([loadSidebar(), loadTopbar()]);
 
 	// /new SSR画面（action-area に data-new-type）が居る場合はフォーム起動して終了
 	const newArea = $("#action-area");
@@ -940,39 +861,7 @@ async function init() {
 		return;
 	}
 
-	// SSRでコンテンツが既にレンダリング済みなら、WDPRランタイムを初期化し
-	// /api/page/* を1回叩いて can_edit / visibility 等のフラグを取得（updatePageOptions に渡す）
-	const pageContent = $("#page-content");
-	if (
-		pageContent &&
-		pageContent.innerHTML.trim() &&
-		!pageContent.textContent?.includes("Loading")
-	) {
-		initRuntime();
-		const path = getPagePathFromUrl();
-		if (path) {
-			try {
-				// API には URL params 付きの full path（ListPages 解決のため）。
-				// 表示用 data-path 等には clean path を使う。
-				const res = await fetch(`/api/page/${path}`);
-				if (res.ok) {
-					const data: PageResponse = await res.json();
-					updatePageTags(data.tags);
-					updatePageOptions(cleanPagePath(path), data);
-				} else {
-					updatePageTags([]);
-					clearPageOptions();
-				}
-			} catch {
-				updatePageTags([]);
-				clearPageOptions();
-			}
-		}
-	} else {
-		// SSRコンテンツがない場合（フォールバック）
-		const path = getPagePathFromUrl();
-		if (path) await loadPage(path);
-	}
+	initRuntime();
 }
 
 document.addEventListener("DOMContentLoaded", init);

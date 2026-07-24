@@ -56,26 +56,6 @@ async function deletePasskey(id: string) {
 	}
 }
 
-// --- ナビゲーション ---
-
-function updateNav() {
-	const nav = $("#auth-user-nav");
-	if (!nav) return;
-
-	fetch("/api/me")
-		.then((r) => r.json())
-		.then((data: unknown) => {
-			const d = data as { authenticated: boolean; user?: { name: string } };
-			if (d.authenticated) {
-				nav.innerHTML =
-					`<a href="/user/settings">Settings</a>` +
-					`<a href="/user/activities">Activities</a>` +
-					`<a href="/">Wiki</a>` +
-					`<span>${d.user?.name ?? ""}</span>`;
-			}
-		});
-}
-
 // --- Passkeyログイン ---
 
 async function loginWithPasskey() {
@@ -110,8 +90,6 @@ async function loginWithPasskey() {
 // --- 初期化 ---
 
 document.addEventListener("DOMContentLoaded", () => {
-	updateNav();
-
 	$("#btn-register-passkey")?.addEventListener("click", registerPasskey);
 	$("#btn-passkey-login")?.addEventListener("click", loginWithPasskey);
 
