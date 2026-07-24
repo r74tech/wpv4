@@ -9,7 +9,6 @@ export async function renderNav(
 	env: Bindings,
 	name: string,
 	viewerId: number | null,
-	existingPages?: Set<string>,
 ): Promise<RenderResult | null> {
 	const db = drizzle(env.DB);
 	const page = await db
@@ -24,6 +23,5 @@ export async function renderNav(
 		pageName: name,
 		category: "nav",
 		viewerId,
-		existingPages,
 	});
 }

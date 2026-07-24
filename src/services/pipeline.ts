@@ -1,19 +1,10 @@
-import {
-	parse,
-	resolveIncludesAsync,
-	extractDataRequirements,
-	resolveModules,
-} from "@wdprlib/parser";
+import { processWikitext } from "@wdprlib/parser";
 import type {
-	DataProvider,
-	ResolveOptions,
 	NormalizedListPagesQuery,
 	TagCloudDataRequirement,
 	TagCloudExternalData,
 } from "@wdprlib/parser";
-import { renderToHtml } from "@wdprlib/render";
-import type { RenderOptions } from "@wdprlib/render";
-import type { Element } from "@wdprlib/ast";
+import { renderWikitext as renderProcessedWikitext } from "@wdprlib/render";
 import { drizzle } from "drizzle-orm/d1";
 import { eq, and, ne, inArray, notInArray, desc, asc, sql, type SQL } from "drizzle-orm";
 import { pages, pageTags } from "@/db/schema";
@@ -41,28 +32,6 @@ function visibleByViewer(_viewerId: number | null) {
  */
 function listPagesScope() {
 	return and(ne(pages.category, "share"), ne(pages.category, "private"));
-}
-
-/**
- * viewerが閲覧できるページ名のSetを返す（pageExists判定用）。
- * 他人のprivateは含めない、自分のprivateは含める。
- * リクエスト単位で1回だけ呼び出して共有することを想定。
- */
-export async function getExistingPageSet(
-	db: D1Database,
-	viewerId: number | null,
-): Promise<Set<string>> {
-	const d = drizzle(db);
-	const rows = await d
-		.select({ category: pages.category, unixName: pages.unixName })
-		.from(pages)
-		.where(visibleByViewer(viewerId));
-	const set = new Set<string>();
-	for (const p of rows) {
-		set.add(formatPagePath(p.category, p.unixName));
-		set.add(`${p.category}:${p.unixName}`);
-	}
-	return set;
 }
 
 /**
@@ -147,58 +116,7 @@ async function buildPrivateHtmlBlockUrl(
 	return `${filesDomain}/private--html/${page}/${hash}?ukey=${ukey}&exp=${exp}`;
 }
 
-/**
- * pageExists callback に渡される page 文字列を、DB保存形式と整合する形に正規化する。
- * share/private のとき unix_name 部分は小文字統一されているため、入力も小文字化する。
- */
-function normalizePageKey(page: string): string {
-	const [category, unixName] = parsePagePath(page);
-	if (isUlidCategory(category)) {
-		return `${category}:${normalizeUlid(unixName)}`;
-	}
-	return page;
-}
-
-function isAstElement(value: unknown): value is Element {
-	return typeof value === "object" && value !== null && "element" in value;
-}
-
-function collectHtmlBlocksInRenderOrder(elements: Element[]): string[] {
-	const htmlBlocks: string[] = [];
-
-	const visitValue = (value: unknown) => {
-		if (Array.isArray(value)) {
-			for (const item of value) {
-				if (isAstElement(item)) {
-					visitElement(item);
-				} else {
-					visitValue(item);
-				}
-			}
-			return;
-		}
-		if (typeof value !== "object" || value === null) return;
-		for (const child of Object.values(value as Record<string, unknown>)) {
-			visitValue(child);
-		}
-	};
-
-	const visitElement = (element: Element) => {
-		if (element.element === "html") {
-			htmlBlocks.push(element.data.contents);
-			return;
-		}
-		if ("data" in element) {
-			visitValue(element.data);
-		}
-	};
-
-	for (const element of elements) {
-		visitElement(element);
-	}
-
-	return htmlBlocks;
-}
+const D1_PAGE_EXISTENCE_BATCH_SIZE = 90;
 
 // Wikidot ListPages の order 文字列を pages カラムにマップする。
 // 未知の order はデフォルト（created_at DESC）にフォールバック。
@@ -216,6 +134,55 @@ const LIST_PAGES_DEFAULT_LIMIT = 20;
 const HIDDEN_TAG_PREFIX = "_";
 
 type Db = ReturnType<typeof drizzle>;
+
+function normalizePageLookup(page: string): { canonical: string; unixName: string } {
+	const [category, rawUnixName] = parsePagePath(page);
+	const unixName = isUlidCategory(category) ? normalizeUlid(rawUnixName) : rawUnixName;
+	return { canonical: formatPagePath(category, unixName), unixName };
+}
+
+async function findExistingPages(
+	db: Db,
+	requestedPages: string[],
+	viewerId: number | null,
+): Promise<ReadonlySet<string>> {
+	if (requestedPages.length === 0) return new Set();
+
+	const requestedByCanonical = new Map<string, string[]>();
+	const unixNames = new Set<string>();
+	for (const requested of requestedPages) {
+		const { canonical, unixName } = normalizePageLookup(requested);
+		requestedByCanonical.set(canonical, [
+			...(requestedByCanonical.get(canonical) ?? []),
+			requested,
+		]);
+		unixNames.add(unixName);
+	}
+
+	const batches: string[][] = [];
+	const allUnixNames = [...unixNames];
+	for (let index = 0; index < allUnixNames.length; index += D1_PAGE_EXISTENCE_BATCH_SIZE) {
+		batches.push(allUnixNames.slice(index, index + D1_PAGE_EXISTENCE_BATCH_SIZE));
+	}
+
+	const results = await Promise.all(
+		batches.map((batch) =>
+			db
+				.select({ category: pages.category, unixName: pages.unixName })
+				.from(pages)
+				.where(and(visibleByViewer(viewerId), inArray(pages.unixName, batch))),
+		),
+	);
+
+	const existing = new Set<string>();
+	for (const rows of results) {
+		for (const row of rows) {
+			const canonical = formatPagePath(row.category, row.unixName);
+			for (const requested of requestedByCanonical.get(canonical) ?? []) existing.add(requested);
+		}
+	}
+	return existing;
+}
 
 /**
  * ListPages モジュール用のデータ取得。
@@ -480,7 +447,6 @@ export async function renderWikitext(
 		category: string;
 		tags?: string[];
 		viewerId?: number | null;
-		existingPages?: Set<string>;
 		// true のときだけ html-block を R2 に PUT する。
 		// save 系 (POST /api/page/new, PUT /api/page/*) のみ true。
 		// preview / GET / nav の read 系では false（URL 生成のみ）
@@ -493,117 +459,71 @@ export async function renderWikitext(
 ): Promise<RenderResult> {
 	const db = drizzle(env.DB);
 	const viewerId = options.viewerId ?? null;
+	const page = {
+		fullName: formatPagePath(options.category, options.pageName),
+		unixName: options.pageName,
+		tags: options.tags ?? [],
+		urlPath: options.urlPath,
+		site: "wpv4",
+		category: options.category,
+		viewerId,
+	};
 
-	// include 展開:
-	// - pages.unix_name は単独 UNIQUE なので、ULID/固定名どちらも一意特定可能
-	// - public↔share トグルで category が変わっても unix_name 検索なら追従できる
-	//   （include は category 非依存で解決する）
-	// - canInclude 判定は「DB 上の現在の category」で行う (URL での指定ではなく)
-	const expanded = await resolveIncludesAsync(source, async (pageRef) => {
-		const [catRaw, nameRaw] = parsePagePath(pageRef.page);
-		const name = isUlidCategory(catRaw) ? normalizeUlid(nameRaw) : nameRaw;
-		const result = await db
-			.select({ source: pages.source, category: pages.category })
-			.from(pages)
-			.where(eq(pages.unixName, name))
-			.limit(1);
-		if (!result[0]) return null;
-		if (!visibilityPolicy(result[0].category).canInclude) return null;
-		return result[0].source;
+	const document = await processWikitext(source, {
+		page,
+		dataProvider: {
+			fetchInclude: async (pageRef) => {
+				if (pageRef.site) return null;
+				const [category, rawUnixName] = parsePagePath(pageRef.page);
+				const unixName = isUlidCategory(category) ? normalizeUlid(rawUnixName) : rawUnixName;
+				const result = await db
+					.select({ source: pages.source, category: pages.category })
+					.from(pages)
+					.where(eq(pages.unixName, unixName))
+					.limit(1);
+				if (!result[0] || !visibilityPolicy(result[0].category).canInclude) return null;
+				return result[0].source;
+			},
+			fetchListPages: (query) =>
+				fetchListPagesData(db, query, {
+					currentCategory: page.category,
+					currentPageName: page.unixName,
+					currentTags: page.tags,
+					viewerId: page.viewerId,
+				}),
+			fetchTagCloud: (requirement) => fetchTagCloudData(db, requirement),
+		},
 	});
 
-	// pageTags を parse() に渡し、[[div_ class="x" [[iftags +foo]]...[[/iftags]]]]
-	// のような opener-embedded [[iftags]] を text-level に畳む。
-	// options.tags が未指定なら null フォールバック (opener-embedded のみ空タグ
-	// 仮定で畳む)、block-level は AST resolver に委譲される。
-	const parserPageTags = options.tags ?? null;
-
-	const parseResult = parse(expanded, { pageTags: parserPageTags });
-	const ast = parseResult.ast;
-
-	const extraction = extractDataRequirements(ast);
-
-	const dataProvider: DataProvider = {
-		async fetchListPages(query, _requirement) {
-			return fetchListPagesData(db, query, {
-				currentCategory: options.category,
-				currentPageName: options.pageName,
-				currentTags: options.tags ?? [],
-				viewerId,
-			});
-		},
-		fetchTagCloud: (requirement) => fetchTagCloudData(db, requirement),
-		getPageTags: () => options.tags ?? [],
-	};
-
-	const resolveOptions: ResolveOptions = {
-		parse: (src) => parse(src, { pageTags: parserPageTags }).ast,
-		compiledListPagesTemplates: extraction.compiledListPagesTemplates,
-		compiledListUsersTemplates: extraction.compiledListUsersTemplates,
-		requirements: extraction.requirements,
-		// @URL|... と urlAttrPrefix の解決に必要。 未指定なら全部 default 値。
-		urlPath: options.urlPath,
-	};
-
-	const resolvedAst = await resolveModules(ast, dataProvider, resolveOptions);
-
-	const existingPages = options.existingPages ?? (await getExistingPageSet(env.DB, viewerId));
-
-	// html-block を R2 に content-addressed で保存し、iframe URL を返す resolver を構築
-	// R2 key と URL パスは visibility で分離（security 優先で URL 削っても漏洩しない）:
-	// - public / share / その他: `local--html/<page>/<hash>` (ukey なし、CDN cache 可)
-	// - private:                 `private--html/<page>/<hash>?ukey=...&exp=...` (HMAC 必須)
 	const pagePolicy = visibilityPolicy(options.category);
 	const isPrivatePage = pagePolicy.visibility === "private";
 	const r2Prefix = isPrivatePage ? "private--html" : "local--html";
-	const htmlBlocks = collectHtmlBlocksInRenderOrder(resolvedAst.elements);
 	const filesDomain = env.FILES_DOMAIN.replace(/\/$/, "");
-
-	// hash は常に計算（URL生成に必要）、R2 PUT は persistHtmlBlocks=true のときだけ
-	const htmlBlockHashes = await Promise.all(
-		htmlBlocks.map(async (content) => {
-			const hash = await sha256Hex(content);
-			if (options.persistHtmlBlocks) {
-				await env.R2.put(`${r2Prefix}/${options.pageName}/${hash}`, content, {
-					httpMetadata: { contentType: "text/html; charset=utf-8" },
-				});
-			}
-			return hash;
-		}),
-	);
-
-	const htmlBlockUrls = await Promise.all(
-		htmlBlockHashes.map(async (hash) => {
-			if (!hash) return "";
-			if (isPrivatePage) {
-				return buildPrivateHtmlBlockUrl(filesDomain, options.pageName, hash, env.FILES_URL_SECRET);
-			}
-			return `${filesDomain}/local--html/${options.pageName}/${hash}`;
-		}),
-	);
-	const htmlBlockUrl = (index: number): string => htmlBlockUrls[index] ?? "";
-
-	const renderOptions: RenderOptions = {
-		page: {
-			pageName: options.pageName,
-			site: "wpv4",
-			tags: options.tags ?? [],
-			pageExists: (name: string) => existingPages.has(normalizePageKey(name)),
+	const rendered = await renderProcessedWikitext(document, {
+		styleMode: "separate",
+		resolvers: {
+			resolvePageExistence: (requestedPages) => findExistingPages(db, requestedPages, viewerId),
+			resolveHtmlBlockUrl: async ({ content }) => {
+				const hash = await sha256Hex(content);
+				if (options.persistHtmlBlocks) {
+					await env.R2.put(`${r2Prefix}/${options.pageName}/${hash}`, content, {
+						httpMetadata: { contentType: "text/html; charset=utf-8" },
+					});
+				}
+				if (isPrivatePage) {
+					return buildPrivateHtmlBlockUrl(
+						filesDomain,
+						options.pageName,
+						hash,
+						env.FILES_URL_SECRET,
+					);
+				}
+				return `${filesDomain}/local--html/${options.pageName}/${hash}`;
+			},
 		},
-		resolvers: { htmlBlockUrl },
-	};
+	});
 
-	const html = renderToHtml(resolvedAst, renderOptions);
-
-	const styleRegex = /<style[^>]*>([\s\S]*?)<\/style>/gi;
-	const styles: string[] = [];
-	let match: RegExpExecArray | null;
-	while ((match = styleRegex.exec(html)) !== null) {
-		styles.push(match[1]);
-	}
-	const cleanHtml = html.replace(styleRegex, "");
-
-	return { html: cleanHtml, styles };
+	return { html: rendered.html, styles: rendered.styles };
 }
 
 /**
