@@ -63,9 +63,11 @@ describe("findReferencingPages", () => {
 			[4, "docs", "suffix", "Suffix", `[[include docs:${upper}/offset/1]]`, 7],
 			[5, "_default", "inline", "Inline", `prefix [[include public:${ulid}]]`, 7],
 			[6, "_default", "variable", "Variable", `[[include template |target=${ulid}]]`, 7],
-			[7, "_default", "cross-site", "Cross-site", `[[include :other:public:${ulid}]]`, 7],
+			[7, "_default", "cross-site", "Cross-site", `[[include :scp-jp:public:${ulid}]]`, 7],
 			[8, "private", "hidden", "Hidden", `[[include private:${ulid}]]`, 99],
 			[9, "private", "owned", "Owned", `[[include private:${ulid}]]`, 7],
+			[10, "share", "same-site", "Same site", `[[include :wpv4:public:${upper}]]`, 7],
+			[11, "share", "semicolon", "Semicolon", `[[include public;${upper}]]`, 7],
 		];
 		const insert = sqlite.prepare(
 			"INSERT INTO pages (id, category, unix_name, title, source, created_by) VALUES (?, ?, ?, ?, ?, ?)",
@@ -74,7 +76,7 @@ describe("findReferencingPages", () => {
 
 		const result = await findReferencingPages(drizzle(createD1Adapter(sqlite)), upper, 1, 7);
 
-		expect(result.visible.map((page) => page.id)).toEqual([2, 3, 4, 9]);
+		expect(result.visible.map((page) => page.id)).toEqual([2, 3, 4, 7, 9, 10, 11]);
 		expect(result.hiddenCount).toBe(1);
 	});
 });
