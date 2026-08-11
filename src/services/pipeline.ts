@@ -7,7 +7,7 @@ import type {
 import { renderWikitext as renderProcessedWikitext } from "@wdprlib/render";
 import { drizzle } from "drizzle-orm/d1";
 import { eq, and, ne, inArray, notInArray, desc, asc, sql, type SQL } from "drizzle-orm";
-import { pages, pageTags } from "@/db/schema";
+import { pages, pageTags, users } from "@/db/schema";
 import { canViewPage, isUlidCategory, normalizeUlid, visibilityPolicy } from "@/lib/visibility";
 import { resolveLocalIncludeUnixName } from "@/lib/include-reference";
 import { normalizeWikidotCategoryName } from "@/lib/wikidot-name";
@@ -478,6 +478,9 @@ export async function renderWikitext(
 		category: options.category,
 		viewerId,
 	};
+	let listUsersLookup:
+		| Promise<{ user: { number: number; title: string; name: string } } | null>
+		| undefined;
 
 	const document = await processWikitext(source, {
 		page,
@@ -501,6 +504,17 @@ export async function renderWikitext(
 					currentTags: page.tags,
 					viewerId: page.viewerId,
 				}),
+			fetchListUsers: async () => {
+				if (viewerId === null) return null;
+				return (listUsersLookup ??= (async () => {
+					const [user] = await db
+						.select({ number: users.wikidotId, title: users.name, name: users.unixName })
+						.from(users)
+						.where(eq(users.id, viewerId))
+						.limit(1);
+					return user ? { user } : null;
+				})());
+			},
 			fetchTagCloud: (requirement) => fetchTagCloudData(db, requirement),
 		},
 	});

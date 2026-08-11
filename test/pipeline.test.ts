@@ -48,6 +48,12 @@ function createD1Adapter(sqlite: Database, executions: QueryExecution[]): D1Data
 function createDatabase(): Database {
 	const sqlite = new Database(":memory:");
 	sqlite.run(`
+		CREATE TABLE users (
+			id INTEGER PRIMARY KEY,
+			wikidot_id INTEGER NOT NULL,
+			name TEXT NOT NULL,
+			unix_name TEXT NOT NULL
+		);
 		CREATE TABLE pages (
 			id INTEGER PRIMARY KEY,
 			category TEXT NOT NULL,
@@ -144,6 +150,41 @@ afterEach(() => {
 });
 
 describe("renderWikitext pipeline adapter", () => {
+	test("resolves ListUsers from the authenticated viewer once per render", async () => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+		const executions: QueryExecution[] = [];
+		sqlite.run(`
+			INSERT INTO users (id, wikidot_id, name, unix_name)
+			VALUES (7, 70, 'Account Name', 'account-name');
+		`);
+		const source = [
+			'[[module ListUsers users="."]]',
+			"%%number%% / %%title%% / %%name%%",
+			"[[/module]]",
+			'[[module ListUsers users="."]]',
+			"%%name%%",
+			"[[/module]]",
+		].join("\n");
+
+		const authenticated = await renderWikitext(source, createEnv(sqlite, { executions }), {
+			pageName: "start",
+			category: "_default",
+			viewerId: 7,
+		});
+		const anonymous = await renderWikitext(source, createEnv(sqlite), {
+			pageName: "start",
+			category: "_default",
+		});
+
+		expect(authenticated.html).toContain("70 / Account Name / account-name");
+		expect(authenticated.html).toContain("account-name");
+		expect(executions.filter(({ sql }) => sql.toLowerCase().includes('from "users"'))).toHaveLength(
+			1,
+		);
+		expect(anonymous.html).toBe("");
+	});
+
 	test("bulk-resolves only requested visible pages with canonical DB lookup", async () => {
 		const sqlite = createDatabase();
 		databases.push(sqlite);
