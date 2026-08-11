@@ -203,4 +203,44 @@ describe("route-level SSR shell state", () => {
 		expect(html).toContain('<a href="/user/settings">Settings</a>');
 		expect(html).toContain("<span>Owner</span>");
 	});
+
+	test("deletes the host-prefixed session cookie over HTTPS", async () => {
+		const origin = "https://example.com";
+		const response = await app.request(
+			`${origin}/auth/logout`,
+			{
+				method: "POST",
+				headers: {
+					Origin: origin,
+					"Content-Type": "application/json",
+				},
+			},
+			env,
+		);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("Set-Cookie")).toBe(
+			"__Host-session=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax",
+		);
+	});
+
+	test("deletes the development session cookie over HTTP", async () => {
+		const origin = "http://localhost";
+		const response = await app.request(
+			`${origin}/auth/logout`,
+			{
+				method: "POST",
+				headers: {
+					Origin: origin,
+					"Content-Type": "application/json",
+				},
+			},
+			env,
+		);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("Set-Cookie")).toBe(
+			"session=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax",
+		);
+	});
 });

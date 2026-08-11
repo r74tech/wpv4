@@ -124,7 +124,7 @@ auth.post("/logout", verifyCsrf, async (c) => {
 		const tokenHash = await hashToken(token);
 		await db.delete(sessions).where(eq(sessions.tokenHash, tokenHash));
 	}
-	deleteCookie(c, sessionCookieName(c.req.url), { path: "/" });
+	deleteCookie(c, sessionCookieName(c.req.url), sessionCookieOptions(c.req.url));
 	return c.json({ ok: true });
 });
 
