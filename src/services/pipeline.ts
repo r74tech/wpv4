@@ -1,4 +1,4 @@
-import { processWikitext } from "@wdprlib/parser";
+import { createSettings, processWikitext } from "@wdprlib/parser";
 import type {
 	NormalizedListPagesQuery,
 	TagCloudDataRequirement,
@@ -481,6 +481,7 @@ export async function renderWikitext(
 
 	const document = await processWikitext(source, {
 		page,
+		settings: { ...createSettings("page"), allowStyleElements: true },
 		dataProvider: {
 			fetchInclude: async (pageRef) => {
 				const unixName = resolveLocalIncludeUnixName(pageRef);
