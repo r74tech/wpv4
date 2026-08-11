@@ -530,7 +530,7 @@ describe("renderWikitext pipeline adapter", () => {
 		const render = (createdBy: string, tracked = false, pageName = "current") =>
 			renderWikitext(
 				[
-					`[[module ListPages category="docs" created-by="${createdBy}" order="title asc" separate="no"]]`,
+					`[[module ListPages category="docs" created_by="${createdBy}" order="title asc" separate="no"]]`,
 					template,
 					"[[/module]]",
 				].join("\n"),
