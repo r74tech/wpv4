@@ -77,7 +77,13 @@ function createDatabase(): Database {
 }
 
 function createR2State(): R2State {
-	return { keys: new Set(), headCalls: [], putCalls: [], deleteCalls: [], successfulWrites: 0 };
+	return {
+		keys: new Set(),
+		headCalls: [],
+		putCalls: [],
+		deleteCalls: [],
+		successfulWrites: 0,
+	};
 }
 
 function createR2Recorder(state: R2State): R2Bucket {
@@ -343,7 +349,9 @@ describe("renderWikitext pipeline adapter", () => {
 		expect(publicState.successfulWrites).toBe(1);
 		expect(publicState.putCalls[0]!.key).toMatch(/^local--html\/public-page\/[a-f0-9]{64}$/);
 		expect(publicState.putCalls[0]!.value).toBe("<p>pipeline</p>");
-		expect(publicState.putCalls[0]!.options.onlyIf).toEqual({ etagDoesNotMatch: "*" });
+		expect(publicState.putCalls[0]!.options.onlyIf).toEqual({
+			etagDoesNotMatch: "*",
+		});
 		expect(publicResult.html).toContain(
 			`src="https://files.example.com/${publicState.putCalls[0]!.key}"`,
 		);
@@ -496,5 +504,61 @@ describe("renderWikitext pipeline adapter", () => {
 
 		expect(result.html).toContain("Beta");
 		expect(result.html).not.toContain("Alpha");
+	});
+
+	test("filters ListPages by author and renders creator and updater metadata", async () => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+		const executions: QueryExecution[] = [];
+		sqlite.run(`
+			INSERT INTO users (id, wikidot_id, name, unix_name) VALUES
+				(1, 74, 'Account Name', 'account-name'),
+				(2, 200, 'Editor Name', 'editor-name');
+			INSERT INTO pages (id, category, unix_name, title, created_by, updated_by) VALUES
+				(1, '_default', 'current', 'Current', 1, 1),
+				(2, 'docs', 'alpha', 'Alpha', 1, 2),
+				(3, 'docs', 'beta', 'Beta', 2, 1),
+				(4, 'docs', 'gamma', 'Gamma', 1, 1),
+				(5, 'docs', 'anonymous', 'Anonymous', NULL, NULL),
+				(6, '_default', 'anonymous-current', 'Anonymous current', NULL, NULL);
+		`);
+		const template = [
+			"%%title%%",
+			"%%created_by%%/%%created_by_unix%%/%%created_by_id%%",
+			"%%updated_by%%/%%updated_by_unix%%/%%updated_by_id%%",
+		].join("|");
+		const render = (createdBy: string, tracked = false, pageName = "current") =>
+			renderWikitext(
+				[
+					`[[module ListPages category="docs" created-by="${createdBy}" order="title asc" separate="no"]]`,
+					template,
+					"[[/module]]",
+				].join("\n"),
+				createEnv(sqlite, tracked ? { executions } : {}),
+				{ pageName, category: "_default" },
+			);
+
+		const named = await render("account-name", true);
+		const sameAuthor = await render("=");
+		const differentAuthor = await render("-=");
+		const sameAnonymousAuthor = await render("=", false, "anonymous-current");
+		const differentAnonymousAuthor = await render("-=", false, "anonymous-current");
+
+		expect(named.html).toContain("Alpha|Account Name/account-name/74|Editor Name/editor-name/200");
+		expect(named.html).toContain("Gamma|Account Name/account-name/74|Account Name/account-name/74");
+		expect(named.html).not.toContain("Beta|");
+		expect(sameAuthor.html).toContain("Alpha|");
+		expect(sameAuthor.html).toContain("Gamma|");
+		expect(sameAuthor.html).not.toContain("Beta|");
+		expect(differentAuthor.html).toContain("Beta|Editor Name/editor-name/200");
+		expect(differentAuthor.html).toContain("Anonymous|");
+		expect(differentAuthor.html).not.toContain("Alpha|");
+		expect(differentAuthor.html).not.toContain("Gamma|");
+		expect(sameAnonymousAuthor.html).toContain("Anonymous|");
+		expect(sameAnonymousAuthor.html).not.toContain("Alpha|");
+		expect(differentAnonymousAuthor.html).toContain("Alpha|");
+		expect(differentAnonymousAuthor.html).toContain("Beta|");
+		expect(differentAnonymousAuthor.html).not.toContain("Anonymous|");
+		expect(executions.filter(({ sql }) => sql.includes('"users"'))).toHaveLength(2);
 	});
 });

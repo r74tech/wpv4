@@ -7,6 +7,7 @@ import type {
 import { renderWikitext as renderProcessedWikitext } from "@wdprlib/render";
 import { drizzle } from "drizzle-orm/d1";
 import { eq, and, ne, inArray, notInArray, desc, asc, sql, type SQL } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import { pages, pageTags, users } from "@/db/schema";
 import { canViewPage, isUlidCategory, normalizeUlid, visibilityPolicy } from "@/lib/visibility";
 import { resolveLocalIncludeUnixName } from "@/lib/include-reference";
@@ -146,7 +147,10 @@ function normalizePageLinkTarget(page: string): string {
 	return normalized.startsWith("/") ? normalized.slice(1) : normalized;
 }
 
-function normalizePageLookup(page: string): { canonical: string; unixName: string } {
+function normalizePageLookup(page: string): {
+	canonical: string;
+	unixName: string;
+} {
 	const [category, rawUnixName] = parsePagePath(normalizePageLinkTarget(page));
 	const unixName = isUlidCategory(category) ? normalizeUlid(rawUnixName) : rawUnixName;
 	return { canonical: formatPagePath(category, unixName), unixName };
@@ -265,6 +269,29 @@ async function fetchListPagesData(
 		conditions.push(and(eq(pages.category, fcat), eq(pages.unixName, fname)) as SQL);
 	}
 
+	if (query.createdBy) {
+		if (query.createdBy === "=" || query.createdBy === "-=") {
+			const currentAuthor = db
+				.select({ id: pages.createdBy })
+				.from(pages)
+				.where(
+					and(eq(pages.category, ctx.currentCategory), eq(pages.unixName, ctx.currentPageName)),
+				)
+				.limit(1);
+			conditions.push(
+				query.createdBy === "="
+					? sql`${pages.createdBy} IS (${currentAuthor})`
+					: sql`${pages.createdBy} IS NOT (${currentAuthor})`,
+			);
+		} else {
+			const matchingUsers = db
+				.select({ id: users.id })
+				.from(users)
+				.where(eq(users.unixName, query.createdBy));
+			conditions.push(inArray(pages.createdBy, matchingUsers));
+		}
+	}
+
 	if (query.tags) {
 		for (const tag of query.tags.all) {
 			const sub = db
@@ -349,9 +376,25 @@ async function fetchListPagesData(
 	const totalCountRaw = Number(totalCountRow[0]?.count ?? 0);
 
 	// 本体取得（limit/offset 適用）
+	const creator = alias(users, "creator");
+	const updater = alias(users, "updater");
 	const rows = await db
-		.select()
+		.select({
+			page: pages,
+			creator: {
+				id: creator.wikidotId,
+				name: creator.name,
+				unixName: creator.unixName,
+			},
+			updater: {
+				id: updater.wikidotId,
+				name: updater.name,
+				unixName: updater.unixName,
+			},
+		})
 		.from(pages)
+		.leftJoin(creator, eq(pages.createdBy, creator.id))
+		.leftJoin(updater, eq(pages.updatedBy, updater.id))
 		.where(whereClause)
 		.orderBy(orderDir(orderField))
 		.limit(limit)
@@ -359,10 +402,10 @@ async function fetchListPagesData(
 
 	// canViewPage（最終ガード）。 range="." / 明示 category="private" 等での
 	// 不正参照を、ここで一律弾く。
-	const visibleRows = rows.filter((p) => canViewPage(p, ctx.viewerId));
+	const visibleRows = rows.filter(({ page }) => canViewPage(page, ctx.viewerId));
 
 	// 対象 page の tags のみ取得（全件読みを避ける）
-	const visibleIds = visibleRows.map((p) => p.id);
+	const visibleIds = visibleRows.map(({ page }) => page.id);
 	const tagRows =
 		visibleIds.length > 0
 			? await db.select().from(pageTags).where(inArray(pageTags.pageId, visibleIds))
@@ -375,13 +418,15 @@ async function fetchListPagesData(
 	}
 
 	return {
-		pages: visibleRows.map((p) => ({
+		pages: visibleRows.map(({ page: p, creator, updater }) => ({
 			name: p.unixName,
 			category: p.category,
 			fullname: formatPagePath(p.category, p.unixName),
 			title: p.title,
 			createdAt: new Date(p.createdAt ?? ""),
+			createdBy: creator ?? undefined,
 			updatedAt: new Date(p.updatedAt ?? ""),
+			updatedBy: updater ?? undefined,
 			tags: tagsByPageId.get(p.id) ?? [],
 			hiddenTags: [] as string[],
 			rating: 0,
@@ -508,7 +553,11 @@ export async function renderWikitext(
 				if (viewerId === null) return null;
 				return (listUsersLookup ??= (async () => {
 					const [user] = await db
-						.select({ number: users.wikidotId, title: users.name, name: users.unixName })
+						.select({
+							number: users.wikidotId,
+							title: users.name,
+							name: users.unixName,
+						})
 						.from(users)
 						.where(eq(users.id, viewerId))
 						.limit(1);
