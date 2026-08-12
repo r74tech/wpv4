@@ -14,9 +14,14 @@ describe("renderLoginStatus", () => {
 	});
 
 	test("renders the account menu and escapes an authenticated user name", () => {
-		const html = renderLoginStatus({ name: '日本語 <Admin> & "Owner"' });
+		const html = renderLoginStatus(
+			{ name: '日本語 <Admin> & "Owner"', unixName: "owner", wikidotId: 70 },
+			"https://files.example.com/",
+		);
 
-		expect(html).toContain('<span class="printuser">日本語 &lt;Admin&gt; &amp; "Owner"</span>');
+		expect(html).toContain('<span class="printuser avatarhover">');
+		expect(html).toContain('src="https://files.example.com/avatar?userId=70"');
+		expect(html).toContain('alt="日本語 &lt;Admin&gt; &amp; &quot;Owner&quot;"');
 		expect(html).toContain('id="account-topbutton"');
 		expect(html).toContain('id="btn-logout"');
 		expect(html).not.toContain("<Admin>");
@@ -99,7 +104,7 @@ describe("renderAuthUserNav", () => {
 	});
 
 	test("renders authenticated navigation with an escaped name", () => {
-		const html = renderAuthUserNav({ name: "利用者 <One>" });
+		const html = renderAuthUserNav({ name: "利用者 <One>", unixName: "one", wikidotId: 1 });
 
 		expect(html).toContain('<a href="/user/settings">Settings</a>');
 		expect(html).toContain('<a href="/user/activities">Activities</a>');

@@ -1,6 +1,7 @@
 import { diffArrays, diffLines } from "diff";
 import { $, escapeAttr, escapeHtml, setHtml } from "./dom";
 import { buildPreviewRequest } from "./preview";
+import { renderAvatarUser } from "../lib/user-markup";
 
 const HISTORY_PAGE_SIZE = 20;
 
@@ -9,6 +10,7 @@ type HistoryDependencies = {
 	initRuntime: () => void;
 	loadPage: (path: string) => void | Promise<void>;
 	getRenderedPagePath: () => string | null;
+	filesDomain: string;
 };
 
 type RevisionResponse = {
@@ -19,6 +21,7 @@ type RevisionResponse = {
 	created_by: number | null;
 	created_by_name: string | null;
 	created_by_unix_name: string | null;
+	created_by_wikidot_id: number | null;
 	created_at: string | null;
 	page_path: string;
 	tags: string[];
@@ -32,6 +35,7 @@ type HistoryRevision = {
 	createdBy: number | null;
 	createdByName: string | null;
 	createdByUnixName: string | null;
+	createdByWikidotId: number | null;
 };
 
 type HistoryState = {
@@ -61,6 +65,17 @@ export function initHistory(dependencies: HistoryDependencies) {
 
 export function clearHistoryState() {
 	currentHistory = null;
+}
+
+function renderHistoryUser(
+	name: string | null,
+	unixName: string | null,
+	wikidotId: number | null,
+	fallback: string,
+): string {
+	return name && unixName
+		? renderAvatarUser({ name, unixName, wikidotId }, deps?.filesDomain ?? "")
+		: fallback;
 }
 
 async function fetchRevision(path: string, num: number): Promise<RevisionResponse | null> {
@@ -114,11 +129,12 @@ export async function showRevisionView(path: string, num: number) {
 				minute: "2-digit",
 			})
 		: "";
-	const userDisplay = data.created_by_name
-		? `<span class="printuser">${escapeHtml(data.created_by_name)}</span>`
-		: data.created_by !== null
-			? `user #${data.created_by}`
-			: "(unknown)";
+	const userDisplay = renderHistoryUser(
+		data.created_by_name,
+		data.created_by_unix_name,
+		data.created_by_wikidot_id,
+		data.created_by !== null ? `user #${data.created_by}` : "(unknown)",
+	);
 
 	const versionInfo =
 		`<div id="page-version-info">` +
@@ -233,11 +249,12 @@ function renderHistoryRows(state: HistoryState): string {
 	return pageRevisions
 		.map((r) => {
 			const date = formatRevisionDate(r.createdAt, false);
-			const userDisplay = r.createdByName
-				? `<span class="printuser">${escapeHtml(r.createdByName)}</span>`
-				: r.createdBy !== null
-					? `user #${r.createdBy}`
-					: "";
+			const userDisplay = renderHistoryUser(
+				r.createdByName,
+				r.createdByUnixName,
+				r.createdByWikidotId,
+				r.createdBy !== null ? `user #${r.createdBy}` : "",
+			);
 			const revertLink =
 				state.canEdit && r.revisionNumber !== state.currentRevision
 					? ` <a title="" href="javascript:;" data-action="revert-revision"` +
@@ -556,8 +573,8 @@ function renderRevisionComparison(from: RevisionResponse, to: RevisionResponse):
 		`<tr><th></th><th>Revision ${from.revision_number}</th><th>Revision ${to.revision_number}</th></tr>` +
 		`<tr><td>Created on:</td><td>${renderCompareDate(from.created_at)}</td>` +
 		`<td>${renderCompareDate(to.created_at)}</td></tr>` +
-		`<tr><td>By:</td><td>${escapeHtml(from.created_by_name ?? "")}</td>` +
-		`<td>${escapeHtml(to.created_by_name ?? "")}</td></tr>` +
+		`<tr><td>By:</td><td>${renderHistoryUser(from.created_by_name, from.created_by_unix_name, from.created_by_wikidot_id, "")}</td>` +
+		`<td>${renderHistoryUser(to.created_by_name, to.created_by_unix_name, to.created_by_wikidot_id, "")}</td></tr>` +
 		(from.title !== to.title
 			? `<tr><td>Title:</td><td>${escapeHtml(from.title)}</td><td>${escapeHtml(to.title)}</td></tr>`
 			: "") +

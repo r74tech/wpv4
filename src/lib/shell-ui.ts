@@ -1,6 +1,7 @@
-export type ShellUser = {
-	name: string;
-};
+import { escapeAttribute, escapeHtml } from "./html";
+import { renderAvatarUser, type AvatarUser } from "./user-markup";
+
+export type ShellUser = AvatarUser;
 
 export type PageActionState = {
 	category: string;
@@ -10,21 +11,13 @@ export type PageActionState = {
 	can_manage: boolean;
 };
 
-function escapeText(value: string): string {
-	return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-function escapeAttribute(value: string): string {
-	return escapeText(value).replace(/"/g, "&quot;");
-}
-
-export function renderLoginStatus(user: ShellUser | null): string {
+export function renderLoginStatus(user: ShellUser | null, filesDomain = ""): string {
 	if (!user) {
 		return '<a href="/auth/login" id="login-link">Sign in / Create account</a>';
 	}
 
 	return (
-		`<span class="printuser">${escapeText(user.name)}</span>` +
+		renderAvatarUser(user, filesDomain) +
 		` | <a id="account-topbutton" href="javascript:;">▼</a>` +
 		`<div id="account-options"><ul>` +
 		`<li><a href="/user/settings">Settings</a></li>` +
@@ -93,6 +86,6 @@ export function renderAuthUserNav(user: ShellUser | null): string {
 		`<a href="/user/settings">Settings</a>` +
 		`<a href="/user/activities">Activities</a>` +
 		`<a href="/">Wiki</a>` +
-		`<span>${escapeText(user.name)}</span>`
+		`<span>${escapeHtml(user.name)}</span>`
 	);
 }

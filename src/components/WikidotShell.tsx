@@ -21,6 +21,7 @@ type Props = PropsWithChildren<{
 	pageStyles?: string[];
 	title?: string;
 	user: ShellUser | null;
+	filesDomain: string;
 	pageActions?: {
 		path: string;
 		page: PageActionState;
@@ -34,6 +35,7 @@ export const WikidotShell: FC<Props> = ({
 	pageStyles,
 	title = "",
 	user,
+	filesDomain,
 	pageActions,
 }) => {
 	const clientScript = getClientScriptPath("main");
@@ -57,7 +59,7 @@ export const WikidotShell: FC<Props> = ({
 						<style id="wdpr-page-styles">{raw(resolvedPageStyles.join("\n"))}</style>
 					)}
 				</head>
-				<body id="html-body">
+				<body id="html-body" data-files-domain={filesDomain.replace(/\/$/, "")}>
 					<div id="skrollr-body">
 						<a name="page-top" />
 						<div id="container-wrap-wrap">
@@ -86,7 +88,7 @@ export const WikidotShell: FC<Props> = ({
 											</form>
 										</div>
 										<div id="top-bar">{raw(topbar?.html ?? "")}</div>
-										<div id="login-status">{raw(renderLoginStatus(user))}</div>
+										<div id="login-status">{raw(renderLoginStatus(user, filesDomain))}</div>
 										<div id="header-extra-div-1">
 											<span />
 										</div>
