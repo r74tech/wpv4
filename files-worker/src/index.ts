@@ -6,6 +6,7 @@
  * URL パターン (Wikidot の wdfiles.com 互換):
  *   GET /local--html/<page>/<hash>    HTML block content (iframe sandbox)
  *   GET /local--code/<page>/<index>   Code block content (text/plain)
+ *   GET /avatar?username=<name>       User avatar (dedicated R2 bucket)
  *   GET /common--javascript/html-block-iframe.js
  *                                     iframe リサイズスクリプト (@wdprlib/runtime 提供)
  *
@@ -13,9 +14,18 @@
  */
 
 import { HTML_BLOCK_RESIZE_SCRIPT } from "@wdprlib/runtime";
+import {
+	AVATAR_CACHE_CONTROL,
+	DEFAULT_AVATAR_KEY,
+	MAX_AVATAR_BYTES,
+	avatarKey,
+	isAllowedAvatarContentType,
+} from "../../src/services/avatar";
 
 type Env = {
+	DB: D1Database;
 	FILES: R2Bucket;
+	AVATARS: R2Bucket;
 	ALLOWED_ORIGIN?: string;
 	HTML_BLOCK_CSS_URL?: string;
 	// private html-block の ukey 検証用 HMAC 鍵（main worker と共有）
@@ -52,8 +62,67 @@ function timingSafeEqualHex(a: string, b: string): boolean {
 	return result === 0;
 }
 
-const DEFAULT_HTML_BLOCK_CSS_URL =
-	"https://wp.r74.tech/common--theme/base/css/html-block.css";
+const DEFAULT_HTML_BLOCK_CSS_URL = "https://wp.r74.tech/common--theme/base/css/html-block.css";
+const DEFAULT_AVATAR_BASE64 =
+	"iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAIAAADYYG7QAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAB3RJTUUH1gYDExsbqHUQgwAAAB10RVh0Q29tbWVudABDcmVhdGVkIHdpdGggVGhlIEdJTVDvZCVuAAACO0lEQVRYw+2Yv8/5QBzH26/vItTgRxj8iomoiM3AarWIGNiNYpP4B7qZGMxmZoMfAwkGiUkaVg0SA00rWr3v0OTSSJ4+zfF87xn6nu6d3l1f+fTuc/0cCQAgfpP+EL9MJpAJZAIZ1/P5DIVCJEmSJNlsNo0OAz8phmHUt1gslvl8bmTIzwJdLher1aoy0TQtSRJmIABAuVyGX6PVauEHmkwmEMjtdvM8jxlIURS/3w+ZGIbBDAQAqNfrECgQCMiyjAj0qf04Ho+18wwGA8xAj8fDbrfDeYrFImYgAEAmk4HzUBR1v9+/6vmfjg6apmH7drstFgvMZ1kikdDa2Wz2Vc+/+qfKp4Di8bjWbjYbzBFyuVxau9/vUSL0rUiSNBhgh8OhfcRxHOYIvQDxPI8ZiKIorZUkCTPQC4HNZsMMJIqizhr/2KI2nhdOp5PWBoNBzBE6HA5aG4vFUCL0sqvfyZMsy2ptKpXCHKHtdqu12rMWD9BqtYLtcDgciUTeBdJPyvqSZXm9XkObz+c/UCjqZI5vtVwuBUGAtlQqIQKpf0w+n48gCKfTiQw0Go20+yudTqNHiOO44/FIEEQymUQG6vf7sF2r1dBLaUVRKpWK2q3X66H9vO52O/gur9crCAJiGcSybDabVSfK5XL6tYuOGo0GBOp0OuiV6/l8VsvyQqFwvV7RaERR9Hg8Kk00Gn23tm+328Ph8J1io9vtwqwxnU4x334oihKNRlWgarVqcBRp3lObQCaQCYRZ/wA+c0YWT0b5PQAAAABJRU5ErkJggg==";
+
+function defaultAvatarBytes(): Uint8Array {
+	return Uint8Array.from(atob(DEFAULT_AVATAR_BASE64), (character) => character.charCodeAt(0));
+}
+
+async function avatarKeyForUsername(db: D1Database, username: string | null): Promise<string> {
+	const normalized = username?.trim().toLowerCase() ?? "";
+	if (!normalized || normalized.length > 128) return DEFAULT_AVATAR_KEY;
+	const user = await db
+		.prepare(
+			"SELECT MIN(wikidot_id) AS wikidot_id, COUNT(*) AS matches FROM users WHERE avatar_unix_name = ?",
+		)
+		.bind(normalized)
+		.first<{ wikidot_id: number | null; matches: number }>();
+	return user?.matches === 1 &&
+		typeof user.wikidot_id === "number" &&
+		Number.isSafeInteger(user.wikidot_id) &&
+		user.wikidot_id > 0
+		? avatarKey(user.wikidot_id)
+		: DEFAULT_AVATAR_KEY;
+}
+
+async function getAvatar(bucket: R2Bucket, key: string): Promise<R2ObjectBody | null> {
+	const object = await bucket.get(key);
+	const contentType = object?.httpMetadata?.contentType?.toLowerCase().split(";", 1)[0]?.trim();
+	if (!object || object.size > MAX_AVATAR_BYTES || !isAllowedAvatarContentType(contentType)) {
+		await object?.body.cancel();
+		return null;
+	}
+	return object;
+}
+
+async function defaultAvatarResponse(
+	bucket: R2Bucket,
+	method: string,
+	corsHeaders: Record<string, string>,
+): Promise<Response> {
+	const bytes = defaultAvatarBytes();
+	try {
+		await bucket.put(DEFAULT_AVATAR_KEY, bytes, {
+			httpMetadata: {
+				contentType: "image/png",
+				cacheControl: AVATAR_CACHE_CONTROL,
+			},
+		});
+	} catch (error) {
+		console.error("Failed to cache the default avatar", error);
+	}
+
+	return new Response(method === "HEAD" ? null : bytes, {
+		headers: {
+			...corsHeaders,
+			"Cache-Control": AVATAR_CACHE_CONTROL,
+			"Content-Type": "image/png",
+			"X-Content-Type-Options": "nosniff",
+		},
+	});
+}
 
 function htmlWrapperTemplate(cssUrl: string): string {
 	return `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
@@ -128,6 +197,28 @@ export default {
 					"Cache-Control": "public, max-age=31536000, immutable",
 				},
 			});
+		}
+
+		if (path === "/avatar") {
+			const key = await avatarKeyForUsername(env.DB, url.searchParams.get("username"));
+			let object = await getAvatar(env.AVATARS, key);
+			if (!object && key !== DEFAULT_AVATAR_KEY) {
+				object = await getAvatar(env.AVATARS, DEFAULT_AVATAR_KEY);
+			}
+			if (!object) return defaultAvatarResponse(env.AVATARS, request.method, corsHeaders);
+
+			const headers = new Headers({
+				...corsHeaders,
+				"Cache-Control": AVATAR_CACHE_CONTROL,
+				"Content-Type": object.httpMetadata!.contentType!,
+				ETag: object.httpEtag,
+				"X-Content-Type-Options": "nosniff",
+			});
+			if (request.method === "HEAD") {
+				await object.body.cancel();
+				return new Response(null, { headers });
+			}
+			return new Response(object.body, { headers });
 		}
 
 		const htmlMatch = path.match(/^\/local--html\/([^/]+)\/([^/]+)$/);

@@ -104,6 +104,7 @@ function createEnv(sqlite: Database, executions: QueryExecution[] = []): Binding
 	return {
 		DB: createD1Adapter(sqlite, executions),
 		R2: {} as R2Bucket,
+		AVATARS: {} as R2Bucket,
 		OAUTH_PROVIDER_URL: "",
 		CLIENT_ID: "",
 		CLIENT_SECRET: "",
