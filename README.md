@@ -34,7 +34,7 @@ bun run test
 
 ## デプロイ
 
-Cloudflare **Workers Builds**（GitHub接続）でpushにより自動ビルド・デプロイする。main worker と files worker（html-block iframe・ユーザーアイコン配信）の2つを別プロジェクトとして接続する。files workerは共有D1でusernameをWikidot IDへ解決し、画像本体を専用R2から配信する。
+Cloudflare **Workers Builds**（GitHub接続）でpushにより自動ビルド・デプロイする。main worker と files worker（html-block iframe・ユーザーアイコン配信）の2つを別プロジェクトとして接続する。ユーザーアイコンはWikidot IDを含むURLから専用R2のID keyを直接参照する。
 
 ### ブランチ戦略
 

@@ -14,6 +14,7 @@ async function renderShell(title?: string) {
 			pageStyles: [".page { color: red; }"],
 			title,
 			user: null,
+			filesDomain: "https://files.example.com/",
 		}),
 	);
 }
@@ -54,6 +55,7 @@ describe("WikidotShell styles", () => {
 				sidebar: { html: "", styles: [".side { color: blue; }"] },
 				topbar: null,
 				user: null,
+				filesDomain: "https://files.example.com/",
 			}),
 		);
 
@@ -71,7 +73,7 @@ describe("WikidotShell initial UI", () => {
 		);
 		expect(html).toContain('<div id="side-bar-actions"><div class="side-block">');
 		expect(html).toContain("<p>Account</p>");
-		expect(html).toContain('<body id="html-body">');
+		expect(html).toContain('<body id="html-body" data-files-domain="https://files.example.com">');
 		expect(html).not.toContain("data-authenticated");
 		expect(html).not.toContain("data-ssr");
 	});
@@ -82,7 +84,8 @@ describe("WikidotShell initial UI", () => {
 				children: "content",
 				sidebar: null,
 				topbar: null,
-				user: { name: "Owner" },
+				user: { name: "Owner", unixName: "owner", wikidotId: 70 },
+				filesDomain: "https://files.example.com/",
 				pageActions: {
 					path: "private:01arz3ndektsv4rrffq69g5fav",
 					page: {
@@ -96,7 +99,8 @@ describe("WikidotShell initial UI", () => {
 			}),
 		);
 
-		expect(html).toContain('<span class="printuser">Owner</span>');
+		expect(html).toContain('<span class="printuser avatarhover">');
+		expect(html).toContain('src="https://files.example.com/avatar?userId=70"');
 		expect(html).toContain('id="btn-logout"');
 		expect(html).toContain('<a href="/new?type=public">+ Public</a>');
 		expect(html).toContain('data-action="edit"');
@@ -109,7 +113,8 @@ describe("WikidotShell initial UI", () => {
 				children: "content",
 				sidebar: null,
 				topbar: null,
-				user: { name: "Owner" },
+				user: { name: "Owner", unixName: "owner", wikidotId: 70 },
+				filesDomain: "https://files.example.com/",
 			}),
 		);
 

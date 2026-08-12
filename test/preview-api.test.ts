@@ -166,8 +166,23 @@ describe("preview API page context", () => {
 		);
 
 		expect(response.status).toBe(200);
-		const result = (await response.json()) as { page_path: string; tags: string[] };
+		const result = (await response.json()) as {
+			page_path: string;
+			tags: string[];
+			created_by_wikidot_id: number;
+		};
 		expect(result.page_path).toBe("_default:guide");
 		expect(result.tags).toEqual(["alpha", "beta"]);
+		expect(result.created_by_wikidot_id).toBe(70);
+
+		const historyResponse = await app.request(
+			"http://localhost/api/page-history/guide",
+			undefined,
+			createEnv(sqlite),
+		);
+		const history = (await historyResponse.json()) as {
+			revisions: Array<{ createdByWikidotId: number }>;
+		};
+		expect(history.revisions[0]?.createdByWikidotId).toBe(70);
 	});
 });

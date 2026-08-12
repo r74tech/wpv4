@@ -2,6 +2,10 @@
 @import url(https://scp-jp.github.io/sigma/css/sigma.css);
 @import url(./colmod.css);
 
+.printuser.avatarhover > a > img {
+	padding: 1px 0;
+}
+
 #header {
 	background-image: unset;
 }

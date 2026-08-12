@@ -495,6 +495,7 @@ api.get("/page-history/*", async (c) => {
 			createdAt: revisions.createdAt,
 			createdByName: users.name,
 			createdByUnixName: users.unixName,
+			createdByWikidotId: users.wikidotId,
 		})
 		.from(revisions)
 		.leftJoin(users, eq(users.id, revisions.createdBy))
@@ -517,6 +518,7 @@ api.get("/page-history/*", async (c) => {
 			createdBy: r.createdBy,
 			createdByName: r.createdByName,
 			createdByUnixName: r.createdByUnixName,
+			createdByWikidotId: r.createdByWikidotId,
 		})),
 	});
 });
@@ -559,6 +561,7 @@ api.get("/page-revision/*/r/:num", async (c) => {
 			createdAt: revisions.createdAt,
 			createdByName: users.name,
 			createdByUnixName: users.unixName,
+			createdByWikidotId: users.wikidotId,
 		})
 		.from(revisions)
 		.leftJoin(users, eq(users.id, revisions.createdBy))
@@ -589,6 +592,7 @@ api.get("/page-revision/*/r/:num", async (c) => {
 		created_by: rev[0].createdBy,
 		created_by_name: rev[0].createdByName,
 		created_by_unix_name: rev[0].createdByUnixName,
+		created_by_wikidot_id: rev[0].createdByWikidotId,
 		created_at: rev[0].createdAt,
 		page_path: `${page[0].category}:${page[0].unixName}`,
 		tags: tags.map((tag) => tag.tag),

@@ -137,7 +137,9 @@ describe("route-level SSR shell state", () => {
 
 		expect(response.status).toBe(200);
 		expect(html).toContain('<div id="page-content"></div>');
-		expect(html).toContain('<span class="printuser">Owner</span>');
+		expect(html).toContain('<span class="printuser avatarhover">');
+		expect(html).toContain('src="https://files.example.com/avatar?userId=70"');
+		expect(html).toContain('data-files-domain="https://files.example.com"');
 		expect(html).toContain('<a href="/new?type=public">+ Public</a>');
 		expect(html).toContain('data-action="edit" data-path="main"');
 		expect(html).toContain('data-action="source" data-path="main"');
@@ -150,6 +152,7 @@ describe("route-level SSR shell state", () => {
 
 		expect(response.status).toBe(404);
 		expect(html).toContain('id="login-link"');
+		expect(html).toContain('data-files-domain="https://files.example.com"');
 		expect(html).toContain("<p>Account</p>");
 		expect(html).not.toContain('data-action="source"');
 	});
@@ -178,7 +181,7 @@ describe("route-level SSR shell state", () => {
 
 		expect(response.status).toBe(200);
 		expect(html).toContain("Create a new public page");
-		expect(html).toContain('<span class="printuser">Owner</span>');
+		expect(html).toContain('<span class="printuser avatarhover">');
 		expect(html).not.toContain('data-action="source"');
 	});
 

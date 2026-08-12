@@ -846,6 +846,7 @@ async function init() {
 		initRuntime,
 		loadPage,
 		getRenderedPagePath: () => renderedPagePath,
+		filesDomain: document.body.dataset.filesDomain ?? "",
 	});
 	setupEventHandlers();
 	const initialPagePath = getPagePathFromUrl();

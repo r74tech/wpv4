@@ -64,7 +64,7 @@ app.get("/new", async (c) => {
 
 	// Wikidot のページ編集画面構造を踏襲（既存CSSを活かすため）
 	return c.html(
-		<WikidotShell sidebar={sidebar} topbar={topbar} user={viewer}>
+		<WikidotShell sidebar={sidebar} topbar={topbar} user={viewer} filesDomain={c.env.FILES_DOMAIN}>
 			<PageTitle title="" />
 			<div id="page-content" />
 			<div id="action-area" style="display: block;" data-new-type={type}>
@@ -173,7 +173,12 @@ app.get("*", async (c) => {
 
 	if (!page) {
 		return c.html(
-			<WikidotShell sidebar={sidebar} topbar={topbar} user={viewer}>
+			<WikidotShell
+				sidebar={sidebar}
+				topbar={topbar}
+				user={viewer}
+				filesDomain={c.env.FILES_DOMAIN}
+			>
 				<PageTitle title="" />
 				<div id="page-content">
 					<p>Page not found.</p>
@@ -185,7 +190,12 @@ app.get("*", async (c) => {
 
 	if (!canViewPage(page, viewerId)) {
 		return c.html(
-			<WikidotShell sidebar={sidebar} topbar={topbar} user={viewer}>
+			<WikidotShell
+				sidebar={sidebar}
+				topbar={topbar}
+				user={viewer}
+				filesDomain={c.env.FILES_DOMAIN}
+			>
 				<PageTitle title="Forbidden" />
 				<div id="page-content">
 					<p>This page is private.</p>
@@ -217,6 +227,7 @@ app.get("*", async (c) => {
 			pageStyles={result.styles}
 			title={page.title}
 			user={viewer}
+			filesDomain={c.env.FILES_DOMAIN}
 			pageActions={{
 				path: formatPagePath(category, unixName),
 				page: {
