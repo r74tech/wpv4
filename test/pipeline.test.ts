@@ -52,7 +52,8 @@ function createDatabase(): Database {
 			id INTEGER PRIMARY KEY,
 			wikidot_id INTEGER NOT NULL,
 			name TEXT NOT NULL,
-			unix_name TEXT NOT NULL
+			unix_name TEXT NOT NULL,
+			avatar_unix_name TEXT
 		);
 		CREATE TABLE pages (
 			id INTEGER PRIMARY KEY,
@@ -160,14 +161,63 @@ describe("renderWikitext pipeline adapter", () => {
 	test("routes avatar user markup through the files domain", async () => {
 		const sqlite = createDatabase();
 		databases.push(sqlite);
+		sqlite.run(
+			"INSERT INTO users (id, wikidot_id, name, unix_name, avatar_unix_name) VALUES (1, 4053112, 'User', 'user', 'user')",
+		);
 
 		const rendered = await renderWikitext("[[*user USER]]", createEnv(sqlite), {
 			pageName: "start",
 			category: "_default",
 		});
 
-		expect(rendered.html).toContain('src="https://files.example.com/avatar?username=user"');
+		expect(rendered.html).toContain('src="https://files.example.com/avatar?userId=4053112"');
 		expect(rendered.html).toContain('href="https://www.wikidot.com/user:info/user"');
+	});
+
+	test("uses the default avatar ID for an unknown user", async () => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+
+		const rendered = await renderWikitext("[[*user missing]]", createEnv(sqlite), {
+			pageName: "start",
+			category: "_default",
+		});
+
+		expect(rendered.html).toContain('src="https://files.example.com/avatar?userId=-1"');
+		expect(rendered.html).toContain('href="https://www.wikidot.com/user:info/missing"');
+	});
+
+	test("uses the default avatar ID when ownership is ambiguous", async () => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+		sqlite.run(`
+			INSERT INTO users (id, wikidot_id, name, unix_name, avatar_unix_name) VALUES
+				(1, 1, 'Old', 'shared-name', 'shared-name'),
+				(2, 2, 'New', 'shared-name', 'shared-name');
+		`);
+
+		const rendered = await renderWikitext("[[*user SHARED-NAME]]", createEnv(sqlite), {
+			pageName: "start",
+			category: "_default",
+		});
+
+		expect(rendered.html).toContain('src="https://files.example.com/avatar?userId=-1"');
+	});
+
+	test("limits avatar ownership lookup to 100 normalized names", async () => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+		const executions: QueryExecution[] = [];
+		const source = Array.from({ length: 101 }, (_, index) => `[[*user user-${index}]]`).join("\n");
+
+		const rendered = await renderWikitext(source, createEnv(sqlite, { executions }), {
+			pageName: "start",
+			category: "_default",
+		});
+		const lookup = executions.find(({ sql }) => sql.includes("avatar_unix_name"));
+
+		expect(lookup?.params).toHaveLength(100);
+		expect(rendered.html.match(/avatar\?userId=-1/g)).toHaveLength(101);
 	});
 
 	test("replaces malformed UTF-16 before building user URLs", async () => {
@@ -461,8 +511,10 @@ describe("renderWikitext pipeline adapter", () => {
 		const sqlite = createDatabase();
 		databases.push(sqlite);
 		sqlite.run(`
+			INSERT INTO users (id, wikidot_id, name, unix_name, avatar_unix_name)
+			VALUES (1, 4053112, 'User', 'user', 'user');
 			INSERT INTO pages (id, category, unix_name, source) VALUES
-				(1, 'public', 'public-include', 'PUBLIC_INCLUDE'),
+				(1, 'public', 'public-include', 'PUBLIC_INCLUDE [[*user user]]'),
 				(2, 'share', 'share-include', 'SHARE_INCLUDE'),
 				(3, 'private', 'private-include', 'PRIVATE_INCLUDE');
 		`);
@@ -480,6 +532,7 @@ describe("renderWikitext pipeline adapter", () => {
 		);
 
 		expect(result.html).toContain("PUBLIC_INCLUDE");
+		expect(result.html).toContain("avatar?userId=4053112");
 		expect(result.html).toContain("SHARE_INCLUDE");
 		expect(result.html).not.toContain("PRIVATE_INCLUDE");
 		expect(result.html).toContain("MATCHED_TAG");
@@ -537,9 +590,9 @@ describe("renderWikitext pipeline adapter", () => {
 		databases.push(sqlite);
 		const executions: QueryExecution[] = [];
 		sqlite.run(`
-			INSERT INTO users (id, wikidot_id, name, unix_name) VALUES
-				(1, 74, 'Account Name', 'account-name'),
-				(2, 200, 'Editor Name', 'editor-name');
+			INSERT INTO users (id, wikidot_id, name, unix_name, avatar_unix_name) VALUES
+				(1, 74, 'Account Name', 'account-name', 'account-name'),
+				(2, 200, 'Editor Name', 'editor-name', 'editor-name');
 			INSERT INTO pages (id, category, unix_name, title, created_by, updated_by) VALUES
 				(1, '_default', 'current', 'Current', 1, 1),
 				(2, 'docs', 'alpha', 'Alpha', 1, 2),
@@ -550,6 +603,7 @@ describe("renderWikitext pipeline adapter", () => {
 		`);
 		const template = [
 			"%%title%%",
+			"[[*user %%created_by_unix%%]]",
 			"%%created_by%%/%%created_by_unix%%/%%created_by_id%%",
 			"%%updated_by%%/%%updated_by_unix%%/%%updated_by_id%%",
 		].join("|");
@@ -570,13 +624,14 @@ describe("renderWikitext pipeline adapter", () => {
 		const sameAnonymousAuthor = await render("=", false, "anonymous-current");
 		const differentAnonymousAuthor = await render("-=", false, "anonymous-current");
 
-		expect(named.html).toContain("Alpha|Account Name/account-name/74|Editor Name/editor-name/200");
-		expect(named.html).toContain("Gamma|Account Name/account-name/74|Account Name/account-name/74");
+		expect(named.html).toContain("Account Name/account-name/74|Editor Name/editor-name/200");
+		expect(named.html).toContain("avatar?userId=74");
+		expect(named.html).toContain("Account Name/account-name/74|Account Name/account-name/74");
 		expect(named.html).not.toContain("Beta|");
 		expect(sameAuthor.html).toContain("Alpha|");
 		expect(sameAuthor.html).toContain("Gamma|");
 		expect(sameAuthor.html).not.toContain("Beta|");
-		expect(differentAuthor.html).toContain("Beta|Editor Name/editor-name/200");
+		expect(differentAuthor.html).toContain("Editor Name/editor-name/200");
 		expect(differentAuthor.html).toContain("Anonymous|");
 		expect(differentAuthor.html).not.toContain("Alpha|");
 		expect(differentAuthor.html).not.toContain("Gamma|");
@@ -585,6 +640,6 @@ describe("renderWikitext pipeline adapter", () => {
 		expect(differentAnonymousAuthor.html).toContain("Alpha|");
 		expect(differentAnonymousAuthor.html).toContain("Beta|");
 		expect(differentAnonymousAuthor.html).not.toContain("Anonymous|");
-		expect(executions.filter(({ sql }) => sql.includes('"users"'))).toHaveLength(2);
+		expect(executions.filter(({ sql }) => sql.includes('"users"'))).toHaveLength(3);
 	});
 });

@@ -85,11 +85,11 @@ describe("avatar storage", () => {
 });
 
 describe("files worker avatar route", () => {
-	test("resolves a username to an immutable ID key with safe image headers", async () => {
+	test("resolves a Wikidot user ID directly to its immutable key", async () => {
 		const gets: string[] = [];
 		const response = await filesWorker.fetch(
-			new Request("https://files.example.com/avatar?username=%20USER%20"),
-			createFilesEnv(4053112, {
+			new Request("https://files.example.com/avatar?userId=4053112"),
+			createFilesEnv({
 				async get(key: string) {
 					gets.push(key);
 					return createObject(key);
@@ -104,72 +104,56 @@ describe("files worker avatar route", () => {
 		expect(gets).toEqual(["users/4053112/avatar"]);
 	});
 
-	test("binds traversal-like names in D1 and falls back only to the default key", async () => {
-		const gets: string[] = [];
-		const boundValues: unknown[] = [];
-		const response = await filesWorker.fetch(
-			new Request("https://files.example.com/avatar?username=..%2F..%2Fdefault"),
-			createFilesEnv(
-				null,
-				{
-					async get(key: string) {
-						gets.push(key);
-						return key === "default/avatar" ? createObject(key) : null;
-					},
-				} as R2Bucket,
-				boundValues,
-			),
-		);
-
-		expect(response.status).toBe(200);
-		expect(gets).toEqual(["default/avatar"]);
-		expect(boundValues).toEqual(["../../default"]);
-	});
-
-	test("uses the default when username ownership is ambiguous", async () => {
-		const gets: string[] = [];
-		const response = await filesWorker.fetch(
-			new Request("https://files.example.com/avatar?username=reassigned"),
-			createFilesEnv(
-				4053112,
-				{
+	test("uses only the default key for every invalid or legacy identifier", async () => {
+		for (const query of [
+			"",
+			"?userId=-1",
+			"?userId=0",
+			"?userId=-2",
+			"?userId=1.5",
+			"?userId=1e2",
+			"?userId=%201",
+			"?userId=9007199254740992",
+			"?userId=..%2F..%2Fdefault",
+			"?username=user",
+		]) {
+			const gets: string[] = [];
+			const response = await filesWorker.fetch(
+				new Request(`https://files.example.com/avatar${query}`),
+				createFilesEnv({
 					async get(key: string) {
 						gets.push(key);
 						return createObject(key);
 					},
-				} as R2Bucket,
-				[],
-				2,
-			),
-		);
+				} as R2Bucket),
+			);
 
-		expect(response.status).toBe(200);
-		expect(gets).toEqual(["default/avatar"]);
+			expect(response.status).toBe(200);
+			expect(gets).toEqual(["default/avatar"]);
+		}
 	});
 
-	test("uses the default key when a username is too long", async () => {
+	test("falls back to the default object when an ID object is missing", async () => {
 		const gets: string[] = [];
-		const url = new URL("https://files.example.com/avatar");
-		url.searchParams.set("username", "😀".repeat(60));
 		const response = await filesWorker.fetch(
-			new Request(url),
-			createFilesEnv(null, {
+			new Request("https://files.example.com/avatar?userId=4053112"),
+			createFilesEnv({
 				async get(key: string) {
 					gets.push(key);
-					return createObject(key);
+					return key === "default/avatar" ? createObject(key) : null;
 				},
 			} as R2Bucket),
 		);
 
 		expect(response.status).toBe(200);
-		expect(gets).toEqual(["default/avatar"]);
+		expect(gets).toEqual(["users/4053112/avatar", "default/avatar"]);
 	});
 
 	test("serves and caches the embedded default when the bucket is empty", async () => {
 		const puts: string[] = [];
 		const response = await filesWorker.fetch(
-			new Request("https://files.example.com/avatar?username=missing"),
-			createFilesEnv(null, {
+			new Request("https://files.example.com/avatar?userId=-1"),
+			createFilesEnv({
 				async get() {
 					return null;
 				},
@@ -189,33 +173,8 @@ describe("files worker avatar route", () => {
 	});
 });
 
-function createFilesEnv(
-	wikidotId: number | null,
-	avatars: R2Bucket,
-	boundValues: unknown[] = [],
-	matches = wikidotId === null ? 0 : 1,
-): {
-	DB: D1Database;
-	FILES: R2Bucket;
-	AVATARS: R2Bucket;
-} {
+function createFilesEnv(avatars: R2Bucket): { FILES: R2Bucket; AVATARS: R2Bucket } {
 	return {
-		DB: {
-			prepare(query: string) {
-				expect(query).toContain("COUNT(*) AS matches");
-				expect(query).toContain("WHERE avatar_unix_name = ?");
-				return {
-					bind(...values: unknown[]) {
-						boundValues.push(...values);
-						return {
-							async first() {
-								return { wikidot_id: wikidotId, matches };
-							},
-						};
-					},
-				};
-			},
-		} as unknown as D1Database,
 		FILES: {} as R2Bucket,
 		AVATARS: avatars,
 	};

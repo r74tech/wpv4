@@ -6,7 +6,7 @@
  * URL パターン (Wikidot の wdfiles.com 互換):
  *   GET /local--html/<page>/<hash>    HTML block content (iframe sandbox)
  *   GET /local--code/<page>/<index>   Code block content (text/plain)
- *   GET /avatar?username=<name>       User avatar (dedicated R2 bucket)
+ *   GET /avatar?userId=<id>           User avatar (dedicated R2 bucket)
  *   GET /common--javascript/html-block-iframe.js
  *                                     iframe リサイズスクリプト (@wdprlib/runtime 提供)
  *
@@ -23,7 +23,6 @@ import {
 } from "../../src/services/avatar";
 
 type Env = {
-	DB: D1Database;
 	FILES: R2Bucket;
 	AVATARS: R2Bucket;
 	ALLOWED_ORIGIN?: string;
@@ -70,21 +69,10 @@ function defaultAvatarBytes(): Uint8Array {
 	return Uint8Array.from(atob(DEFAULT_AVATAR_BASE64), (character) => character.charCodeAt(0));
 }
 
-async function avatarKeyForUsername(db: D1Database, username: string | null): Promise<string> {
-	const normalized = username?.trim().toLowerCase() ?? "";
-	if (!normalized || normalized.length > 128) return DEFAULT_AVATAR_KEY;
-	const user = await db
-		.prepare(
-			"SELECT MIN(wikidot_id) AS wikidot_id, COUNT(*) AS matches FROM users WHERE avatar_unix_name = ?",
-		)
-		.bind(normalized)
-		.first<{ wikidot_id: number | null; matches: number }>();
-	return user?.matches === 1 &&
-		typeof user.wikidot_id === "number" &&
-		Number.isSafeInteger(user.wikidot_id) &&
-		user.wikidot_id > 0
-		? avatarKey(user.wikidot_id)
-		: DEFAULT_AVATAR_KEY;
+function avatarKeyForUserId(value: string | null): string {
+	if (!value || !/^[1-9]\d*$/.test(value)) return DEFAULT_AVATAR_KEY;
+	const id = Number(value);
+	return Number.isSafeInteger(id) ? avatarKey(id) : DEFAULT_AVATAR_KEY;
 }
 
 async function getAvatar(bucket: R2Bucket, key: string): Promise<R2ObjectBody | null> {
@@ -200,7 +188,7 @@ export default {
 		}
 
 		if (path === "/avatar") {
-			const key = await avatarKeyForUsername(env.DB, url.searchParams.get("username"));
+			const key = avatarKeyForUserId(url.searchParams.get("userId"));
 			let object = await getAvatar(env.AVATARS, key);
 			if (!object && key !== DEFAULT_AVATAR_KEY) {
 				object = await getAvatar(env.AVATARS, DEFAULT_AVATAR_KEY);

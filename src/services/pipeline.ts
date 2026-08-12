@@ -11,6 +11,7 @@ import { alias } from "drizzle-orm/sqlite-core";
 import { pages, pageTags, users } from "@/db/schema";
 import { canViewPage, isUlidCategory, normalizeUlid, visibilityPolicy } from "@/lib/visibility";
 import { resolveLocalIncludeUnixName } from "@/lib/include-reference";
+import { userAvatarUrl, userProfileUrl } from "@/lib/user-markup";
 import { normalizeWikidotCategoryName } from "@/lib/wikidot-name";
 import type { Bindings } from "@/types/env";
 
@@ -18,6 +19,32 @@ export type RenderResult = {
 	html: string;
 	styles: string[];
 };
+
+const AVATAR_USER_LOOKUP_LIMIT = 100;
+
+function collectAvatarUserNames(ast: unknown): string[] {
+	const names = new Set<string>();
+	const seen = new Set<object>();
+	const stack: unknown[] = [ast];
+	while (stack.length > 0 && names.size < AVATAR_USER_LOOKUP_LIMIT) {
+		const value = stack.pop();
+		if (typeof value !== "object" || value === null || seen.has(value)) continue;
+		seen.add(value);
+		if (
+			"element" in value &&
+			value.element === "user" &&
+			"data" in value &&
+			typeof value.data === "object" &&
+			value.data !== null &&
+			"name" in value.data &&
+			typeof value.data.name === "string"
+		) {
+			names.add(value.data.name.trim().toLowerCase().toWellFormed());
+		}
+		stack.push(...Object.values(value));
+	}
+	return [...names];
+}
 
 /**
  * viewer視点で「閲覧可能」なページの WHERE 句（pageExists / include / fetch 用）。
@@ -567,6 +594,20 @@ export async function renderWikitext(
 			fetchTagCloud: (requirement) => fetchTagCloudData(db, requirement),
 		},
 	});
+	const avatarNames = collectAvatarUserNames(document.ast);
+	const avatarRows =
+		avatarNames.length === 0
+			? []
+			: await db
+					.select({ unixName: users.avatarUnixName, wikidotId: users.wikidotId })
+					.from(users)
+					.where(inArray(users.avatarUnixName, avatarNames));
+	const avatarIds = new Map<string, number | null>();
+	for (const row of avatarRows) {
+		if (!row.unixName) continue;
+		const normalized = row.unixName.trim().toLowerCase().toWellFormed();
+		avatarIds.set(normalized, avatarIds.has(normalized) ? null : row.wikidotId);
+	}
 
 	const pagePolicy = visibilityPolicy(options.category);
 	const isPrivatePage = pagePolicy.visibility === "private";
@@ -594,10 +635,9 @@ export async function renderWikitext(
 		resolvers: {
 			user: (username) => {
 				const normalized = username.trim().toLowerCase().toWellFormed();
-				const query = new URLSearchParams({ username: normalized });
 				return {
-					url: `https://www.wikidot.com/user:info/${encodeURIComponent(normalized)}`,
-					avatarUrl: `${filesDomain}/avatar?${query}`,
+					url: userProfileUrl(normalized),
+					avatarUrl: userAvatarUrl(filesDomain, avatarIds.get(normalized) ?? null),
 				};
 			},
 			resolvePageExistence: (requestedPages) => findExistingPages(db, requestedPages, viewerId),
