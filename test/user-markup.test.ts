@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { renderAvatarUser } from "../src/lib/user-markup";
+import { renderAvatarUser, userProfileUrl } from "../src/lib/user-markup";
 
 describe("avatar user markup", () => {
 	test("uses the Wikidot ID for the files-domain avatar", () => {
@@ -24,5 +24,24 @@ describe("avatar user markup", () => {
 		expect(html).toContain('alt="&lt;Admin&gt; &amp; &quot;Owner&quot;"');
 		expect(html).toContain('&lt;Admin&gt; &amp; "Owner"');
 		expect(html).not.toContain("<Admin>");
+	});
+
+	test("normalizes malformed UTF-16 without String.prototype.toWellFormed", () => {
+		const original = String.prototype.toWellFormed;
+		Object.defineProperty(String.prototype, "toWellFormed", {
+			value: undefined,
+			configurable: true,
+		});
+
+		try {
+			expect(userProfileUrl("\uD800user\uDC00")).toBe(
+				"https://www.wikidot.com/user:info/%EF%BF%BDuser%EF%BF%BD",
+			);
+		} finally {
+			Object.defineProperty(String.prototype, "toWellFormed", {
+				value: original,
+				configurable: true,
+			});
+		}
 	});
 });

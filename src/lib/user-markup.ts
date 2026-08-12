@@ -6,8 +6,15 @@ export type AvatarUser = {
 	wikidotId: number | null;
 };
 
+function replaceLoneSurrogates(value: string): string {
+	return value.replace(
+		/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g,
+		"\uFFFD",
+	);
+}
+
 export function userProfileUrl(unixName: string): string {
-	const normalized = unixName.trim().toLowerCase().toWellFormed();
+	const normalized = replaceLoneSurrogates(unixName.trim().toLowerCase());
 	return `https://www.wikidot.com/user:info/${encodeURIComponent(normalized)}`;
 }
 
