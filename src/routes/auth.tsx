@@ -1,12 +1,13 @@
 import { Hono } from "hono";
 import { setCookie, getCookie, deleteCookie } from "hono/cookie";
 import { drizzle } from "drizzle-orm/d1";
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { users, sessions } from "@/db/schema";
 import { generatePkce, generateState, buildAuthorizeUrl, exchangeCode } from "@/services/oauth";
 import { hashToken } from "@/middleware/session";
 import { verifyCsrf } from "@/middleware/csrf";
 import { storeChallenge, consumeChallenge } from "@/services/challenge-store";
+import { avatarKey, storeWikidotAvatar } from "@/services/avatar";
 import {
 	sessionCookieName,
 	sessionCookieOptions,
@@ -75,35 +76,37 @@ auth.get("/callback", async (c) => {
 	const redirectUri = new URL("/auth/callback", c.req.url).toString();
 	const tokenResponse = await exchangeCode(c.env, code, redirectUri, codeVerifier);
 	const db = drizzle(c.env.DB);
-
-	const existing = await db
-		.select()
-		.from(users)
-		.where(eq(users.wikidotId, tokenResponse.id))
-		.limit(1);
-
-	let userId: number;
-	if (existing[0]) {
-		userId = existing[0].id;
-		await db
-			.update(users)
-			.set({
-				name: tokenResponse.name,
-				unixName: tokenResponse.unix_name,
-				lastLoginAt: new Date().toISOString(),
-			})
-			.where(eq(users.id, userId));
-	} else {
-		const result = await db
+	const avatarUnixName = tokenResponse.unix_name.trim().toLowerCase();
+	const clearPreviousOwner = db
+		.update(users)
+		.set({ avatarUnixName: null })
+		.where(and(eq(users.avatarUnixName, avatarUnixName), ne(users.wikidotId, tokenResponse.id)));
+	const userValues = {
+		wikidotId: tokenResponse.id,
+		name: tokenResponse.name,
+		unixName: tokenResponse.unix_name,
+		avatarUnixName,
+		lastLoginAt: new Date().toISOString(),
+	};
+	const [, upserted] = await db.batch([
+		clearPreviousOwner,
+		db
 			.insert(users)
-			.values({
-				wikidotId: tokenResponse.id,
-				name: tokenResponse.name,
-				unixName: tokenResponse.unix_name,
-				lastLoginAt: new Date().toISOString(),
+			.values(userValues)
+			.onConflictDoUpdate({
+				target: users.wikidotId,
+				set: userValues,
 			})
-			.returning({ id: users.id });
-		userId = result[0].id;
+			.returning({ id: users.id }),
+	]);
+	const userId = upserted[0].id;
+
+	try {
+		if (!(await c.env.AVATARS.head(avatarKey(tokenResponse.id)))) {
+			await storeWikidotAvatar(c.env.AVATARS, tokenResponse.id);
+		}
+	} catch (error) {
+		console.error("Failed to store Wikidot avatar", error);
 	}
 
 	const sessionToken = crypto.randomUUID();
