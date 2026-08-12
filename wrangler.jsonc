@@ -31,6 +31,10 @@
 		{
 			"binding": "R2",
 			"bucket_name": "wpv4-files-staging"
+		},
+		{
+			"binding": "AVATARS",
+			"bucket_name": "wpv4-avatars-staging"
 		}
 	],
 	"vars": {
@@ -58,6 +62,10 @@
 				{
 					"binding": "R2",
 					"bucket_name": "wpv4-files-staging"
+				},
+				{
+					"binding": "AVATARS",
+					"bucket_name": "wpv4-avatars-staging"
 				}
 			],
 			"vars": {
@@ -91,6 +99,10 @@
 				{
 					"binding": "R2",
 					"bucket_name": "wpv4-files-prd"
+				},
+				{
+					"binding": "AVATARS",
+					"bucket_name": "wpv4-avatars-prd"
 				}
 			],
 			"vars": {

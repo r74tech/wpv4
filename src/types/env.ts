@@ -1,6 +1,7 @@
 export type Bindings = {
 	DB: D1Database;
 	R2: R2Bucket;
+	AVATARS: R2Bucket;
 	OAUTH_PROVIDER_URL: string;
 	CLIENT_ID: string;
 	CLIENT_SECRET: string;

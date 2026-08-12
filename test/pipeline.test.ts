@@ -117,6 +117,7 @@ function createEnv(
 	return {
 		DB: createD1Adapter(sqlite, options.executions ?? []),
 		R2: createR2Recorder(options.r2State ?? createR2State()),
+		AVATARS: {} as R2Bucket,
 		OAUTH_PROVIDER_URL: "",
 		CLIENT_ID: "",
 		CLIENT_SECRET: "",
@@ -156,6 +157,31 @@ afterEach(() => {
 });
 
 describe("renderWikitext pipeline adapter", () => {
+	test("routes avatar user markup through the files domain", async () => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+
+		const rendered = await renderWikitext("[[*user USER]]", createEnv(sqlite), {
+			pageName: "start",
+			category: "_default",
+		});
+
+		expect(rendered.html).toContain('src="https://files.example.com/avatar?username=user"');
+		expect(rendered.html).toContain('href="https://www.wikidot.com/user:info/user"');
+	});
+
+	test("replaces malformed UTF-16 before building user URLs", async () => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+
+		const rendered = await renderWikitext("[[*user \ud800]]", createEnv(sqlite), {
+			pageName: "start",
+			category: "_default",
+		});
+
+		expect(rendered.html).toContain("%EF%BF%BD");
+	});
+
 	test("resolves ListUsers from the authenticated viewer once per render", async () => {
 		const sqlite = createDatabase();
 		databases.push(sqlite);

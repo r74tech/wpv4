@@ -25,7 +25,7 @@ bun run dev
 ## 品質チェック
 
 ```bash
-bun run typecheck                              # サーバー側
+bun run typecheck                              # main / files worker
 bunx tsc -p src/client/tsconfig.json --noEmit  # クライアント側
 bun run lint
 bun run format
@@ -34,7 +34,7 @@ bun run test
 
 ## デプロイ
 
-Cloudflare **Workers Builds**（GitHub接続）でpushにより自動ビルド・デプロイする。main worker と files worker（html-block iframe 配信専用）の2つを別プロジェクトとして接続する。
+Cloudflare **Workers Builds**（GitHub接続）でpushにより自動ビルド・デプロイする。main worker と files worker（html-block iframe・ユーザーアイコン配信）の2つを別プロジェクトとして接続する。files workerは共有D1でusernameをWikidot IDへ解決し、画像本体を専用R2から配信する。
 
 ### ブランチ戦略
 
@@ -52,10 +52,12 @@ Cloudflare **Workers Builds**（GitHub接続）でpushにより自動ビルド�
    ```bash
    # staging
    wrangler d1 create wpv4-db-staging      # → database_id を wrangler.jsonc に転記
-   wrangler r2 bucket create wpv4-html-blocks-staging
+   wrangler r2 bucket create wpv4-files-staging
+   wrangler r2 bucket create wpv4-avatars-staging
    # production
    wrangler d1 create wpv4-db-prd
-   wrangler r2 bucket create wpv4-html-blocks-prd
+   wrangler r2 bucket create wpv4-files-prd
+   wrangler r2 bucket create wpv4-avatars-prd
    ```
 
 2. **`wrangler.jsonc` の TODO を埋める**
@@ -67,6 +69,13 @@ Cloudflare **Workers Builds**（GitHub接続）でpushにより自動ビルド�
    wrangler d1 migrations apply wpv4-db-staging --remote --env staging
    wrangler d1 migrations apply wpv4-db-prd --remote --env production
    ```
+
+   既存ユーザーがいる環境では、avatar bucket作成後に一括投入する:
+   ```bash
+   bun scripts/backfill-user-avatars.ts staging
+   bun scripts/backfill-user-avatars.ts production
+   ```
+   backfillはWikidotのprofile pageで現在のusernameとIDの対応を確認してから配信名を有効化する。改名などで一致しない既存rowはdefault表示のままにし、次回OAuthログイン時に更新する。既定avatarは一括投入でも保存され、空bucketではfiles Workerが内蔵画像を初回要求時に保存する。
 
 4. **main worker を Workers Builds で接続**
    Cloudflare Dashboard → Workers & Pages → Create → Workers → **Connect to Git** で本リポジトリを選択し、以下を設定:
@@ -134,7 +143,7 @@ wpv4/
 │   ├── components/             # WikidotShell
 │   ├── client/                 # ブラウザ側 main.ts / auth.ts
 │   └── db/schema.ts            # Drizzle スキーマ
-├── files-worker/               # html-block iframe 配信 Worker
+├── files-worker/               # html-block iframe・ユーザーアイコン配信 Worker
 ├── db/migrations/              # D1 migration SQL
 ├── public/                     # 静的アセット（html-block.css 等）
 └── wrangler.jsonc              # main worker 設定（env.staging / env.production）

@@ -3,14 +3,19 @@ import { sqliteTable, text, integer, uniqueIndex, index } from "drizzle-orm/sqli
 
 const now = sql`(datetime('now'))`;
 
-export const users = sqliteTable("users", {
-	id: integer("id").primaryKey({ autoIncrement: true }),
-	wikidotId: integer("wikidot_id").unique().notNull(),
-	name: text("name").notNull(),
-	unixName: text("unix_name").notNull(),
-	createdAt: text("created_at").default(now),
-	lastLoginAt: text("last_login_at"),
-});
+export const users = sqliteTable(
+	"users",
+	{
+		id: integer("id").primaryKey({ autoIncrement: true }),
+		wikidotId: integer("wikidot_id").unique().notNull(),
+		name: text("name").notNull(),
+		unixName: text("unix_name").notNull(),
+		avatarUnixName: text("avatar_unix_name"),
+		createdAt: text("created_at").default(now),
+		lastLoginAt: text("last_login_at"),
+	},
+	(table) => [index("idx_users_avatar_unix_name").on(table.avatarUnixName)],
+);
 
 export const sessions = sqliteTable(
 	"sessions",

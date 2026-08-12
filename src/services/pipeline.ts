@@ -592,6 +592,14 @@ export async function renderWikitext(
 	const rendered = await renderProcessedWikitext(document, {
 		styleMode: "separate",
 		resolvers: {
+			user: (username) => {
+				const normalized = username.trim().toLowerCase().toWellFormed();
+				const query = new URLSearchParams({ username: normalized });
+				return {
+					url: `https://www.wikidot.com/user:info/${encodeURIComponent(normalized)}`,
+					avatarUrl: `${filesDomain}/avatar?${query}`,
+				};
+			},
 			resolvePageExistence: (requestedPages) => findExistingPages(db, requestedPages, viewerId),
 			resolveHtmlBlockUrl: async ({ content }) => {
 				const hash = await sha256Hex(content);
