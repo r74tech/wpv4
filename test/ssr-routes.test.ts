@@ -267,6 +267,10 @@ describe("route-level SSR shell state", () => {
 			'<a href="javascript:;" id="btn-logout" class="auth-signout">Sign out</a>',
 		);
 		expect(html).toContain('<span class="auth-user-name">Owner</span>');
+		expect(html).toContain('class="relative-time"');
+		expect(html).toContain('datetime="2026-01-01T00:00:00.000Z"');
+		expect(html).toContain("data-relative-time");
+		expect(html).toContain("data-relative-label=");
 	});
 
 	test("deletes the host-prefixed session cookie over HTTPS", async () => {

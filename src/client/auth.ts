@@ -4,6 +4,7 @@ import {
 	browserSupportsWebAuthnAutofill,
 } from "@simplewebauthn/browser";
 import { createPasskeyLogin } from "./passkey-login";
+import { applyRelativeTimeLabels } from "./relative-time";
 
 function $(sel: string): HTMLElement | null {
 	return document.querySelector(sel);
@@ -83,6 +84,7 @@ async function deletePasskey(id: string) {
 
 document.addEventListener("DOMContentLoaded", () => {
 	$("#btn-register-passkey")?.addEventListener("click", registerPasskey);
+	applyRelativeTimeLabels();
 
 	const themeToggle = $("#theme-toggle");
 	if (themeToggle) {

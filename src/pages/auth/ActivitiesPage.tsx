@@ -1,4 +1,5 @@
 import type { FC } from "hono/jsx";
+import { RelativeDateTime } from "@/components/RelativeDateTime";
 
 type Revision = {
 	pagePath: string;
@@ -59,28 +60,42 @@ export const ActivitiesPage: FC<Props> = ({ revisions, pagination, search }) => 
 				<div class="empty-state">{search ? `No results for "${search}"` : "No activities yet"}</div>
 			) : (
 				<>
-					<table class="activity-table">
-						<thead>
-							<tr>
-								<th>Page</th>
-								<th>Rev</th>
-								<th>Comment</th>
-								<th>Date</th>
-							</tr>
-						</thead>
-						<tbody>
-							{revisions.map((r) => (
+					<div class="activity-table-scroll">
+						<table class="activity-table">
+							<thead>
 								<tr>
-									<td>
-										<a href={`/${r.pagePath}`}>{r.title || r.pagePath}</a>
-									</td>
-									<td>{String(r.revisionNumber)}</td>
-									<td>{r.comment ?? ""}</td>
-									<td>{r.createdAt ?? ""}</td>
+									<th>Page</th>
+									<th>Rev</th>
+									<th>Date</th>
 								</tr>
-							))}
-						</tbody>
-					</table>
+							</thead>
+							<tbody>
+								{revisions.map((r) => {
+									const hasComment = Boolean(r.comment?.trim());
+									return (
+										<>
+											<tr class={hasComment ? "activity-entry has-comment" : "activity-entry"}>
+												<td>
+													<a href={`/${r.pagePath}`}>{r.title || r.pagePath}</a>
+												</td>
+												<td>{String(r.revisionNumber)}</td>
+												<td>
+													<RelativeDateTime value={r.createdAt} empty="" />
+												</td>
+											</tr>
+											{hasComment && (
+												<tr class="activity-comment-row">
+													<td colspan={3}>
+														<span class="activity-comment-label">Comment:</span> {r.comment}
+													</td>
+												</tr>
+											)}
+										</>
+									);
+								})}
+							</tbody>
+						</table>
+					</div>
 
 					<div style="display:flex;justify-content:space-between;align-items:center;margin-top:1.5rem;font-size:0.85rem;color:var(--text-muted)">
 						<span>{totalCount} total</span>

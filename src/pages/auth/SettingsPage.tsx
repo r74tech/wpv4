@@ -1,4 +1,5 @@
 import type { FC } from "hono/jsx";
+import { RelativeDateTime } from "@/components/RelativeDateTime";
 
 type Passkey = {
 	id: number;
@@ -17,22 +18,6 @@ type Props = {
 	passkeys: Passkey[];
 };
 
-function formatDateTime(value: string | null): string {
-	if (!value) return "—";
-	const normalized = value.includes("T") ? value : value.replace(" ", "T");
-	const date = new Date(normalized.endsWith("Z") ? normalized : `${normalized}Z`);
-	if (Number.isNaN(date.getTime())) return value;
-	return date.toLocaleString("ja-JP", {
-		year: "numeric",
-		month: "2-digit",
-		day: "2-digit",
-		hour: "2-digit",
-		minute: "2-digit",
-		second: "2-digit",
-		hour12: false,
-	});
-}
-
 export const SettingsPage: FC<Props> = ({ user, passkeys }) => (
 	<>
 		<h1>Settings</h1>
@@ -47,9 +32,13 @@ export const SettingsPage: FC<Props> = ({ user, passkeys }) => (
 				<dt>Wikidot ID</dt>
 				<dd>{String(user.wikidotId)}</dd>
 				<dt>Registered</dt>
-				<dd>{formatDateTime(user.createdAt)}</dd>
+				<dd>
+					<RelativeDateTime value={user.createdAt} />
+				</dd>
 				<dt>Last Login</dt>
-				<dd>{formatDateTime(user.lastLoginAt)}</dd>
+				<dd>
+					<RelativeDateTime value={user.lastLoginAt} />
+				</dd>
 			</dl>
 		</div>
 
@@ -63,7 +52,9 @@ export const SettingsPage: FC<Props> = ({ user, passkeys }) => (
 					<div class="passkey-item" data-passkey-id={String(pk.id)}>
 						<div class="passkey-item-info">
 							<span class="passkey-item-name">{pk.name || "Unnamed passkey"}</span>
-							<span class="passkey-item-date">{formatDateTime(pk.createdAt)}</span>
+							<span class="passkey-item-date">
+								<RelativeDateTime value={pk.createdAt} />
+							</span>
 						</div>
 						<button
 							type="button"
