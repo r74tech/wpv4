@@ -21,6 +21,10 @@ export function oauthCookieName(url: string): string {
 	return isSecure(url) ? "__Host-oauth_state" : "oauth_state";
 }
 
+export function lastLoginMethodCookieName(url: string): string {
+	return isSecure(url) ? "__Host-last_login_method" : "last_login_method";
+}
+
 export function sessionCookieOptions(url: string): CookieOptions {
 	const secure = isSecure(url);
 	return {

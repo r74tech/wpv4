@@ -8,6 +8,7 @@ import { hashToken } from "@/middleware/session";
 import { verifyCsrf } from "@/middleware/csrf";
 import { storeChallenge, consumeChallenge } from "@/services/challenge-store";
 import { avatarKey, storeWikidotAvatar } from "@/services/avatar";
+import { readLastLoginMethod, rememberLastLoginMethod } from "@/lib/last-login-method";
 import {
 	sessionCookieName,
 	sessionCookieOptions,
@@ -23,10 +24,10 @@ const auth = new Hono<AppEnv>();
 // --- ログインページ ---
 
 auth.use("/login", authRenderer);
-auth.get("/login", (c) => {
+auth.get("/login", async (c) => {
 	const user = c.get("user");
 	if (user) return c.redirect("/", 302);
-	return c.render(<LoginPage />);
+	return c.render(<LoginPage lastLoginMethod={await readLastLoginMethod(c)} />);
 });
 
 // --- OAuth フロー ---
@@ -116,6 +117,7 @@ auth.get("/callback", async (c) => {
 	await db.insert(sessions).values({ tokenHash, userId, expiresAt });
 
 	setCookie(c, sessionCookieName(c.req.url), sessionToken, sessionCookieOptions(c.req.url));
+	await rememberLastLoginMethod(c, { method: "wikidot" });
 
 	return c.redirect("/", 302);
 });

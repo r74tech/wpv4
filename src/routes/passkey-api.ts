@@ -21,6 +21,7 @@ import {
 	stateCookieOptions,
 	sessionCookieOptions,
 } from "@/lib/cookie";
+import { rememberLastLoginMethod } from "@/lib/last-login-method";
 import type { AppEnv } from "@/types/env";
 
 const RP_NAME = "Wikitext Previewer v4";
@@ -185,90 +186,107 @@ passkeyApi.get("/login/options", async (c) => {
 		type: "login",
 	});
 
-	setCookie(c, passkeyCookieName(c.req.url), stateKey, stateCookieOptions(c.req.url));
+	return c.json({ options, stateKey });
+});
 
-	return c.json(options);
+const authenticationResponseSchema = z.object({
+	id: z.string().min(1),
+	rawId: z.string().min(1),
+	response: z.object({
+		clientDataJSON: z.string().min(1),
+		authenticatorData: z.string().min(1),
+		signature: z.string().min(1),
+		userHandle: z.string().optional(),
+	}),
+	clientExtensionResults: z.record(z.string(), z.unknown()),
+	type: z.literal("public-key"),
+	authenticatorAttachment: z.enum(["cross-platform", "platform"]).optional(),
 });
 
 const loginSchema = z.object({
-	response: z.unknown(),
+	stateKey: z.string().uuid(),
+	response: authenticationResponseSchema,
 });
 
-passkeyApi.post("/login/verify", zValidator("json", loginSchema), async (c) => {
-	const body = c.req.valid("json");
-	const stateKey = getCookie(c, passkeyCookieName(c.req.url));
+passkeyApi.post(
+	"/login/verify",
+	zValidator("json", loginSchema, (result, c) => {
+		if (!result.success) return c.json({ error: "Authentication failed" }, 401);
+	}),
+	async (c) => {
+		const body = c.req.valid("json");
+		const state = await consumeChallenge(c.env.DB, body.stateKey);
+		if (!state || state.type !== "login") {
+			// 均一なエラーメッセージ（oracle防止）
+			return c.json({ error: "Authentication failed" }, 401);
+		}
 
-	if (!stateKey) {
-		return c.json({ error: "Authentication failed" }, 401);
-	}
+		const authResponse: AuthenticationResponseJSON = body.response;
+		const db = drizzle(c.env.DB);
 
-	const state = await consumeChallenge(c.env.DB, stateKey);
-	if (!state || state.type !== "login") {
-		// 均一なエラーメッセージ（oracle防止）
-		return c.json({ error: "Authentication failed" }, 401);
-	}
+		const pk = await db
+			.select()
+			.from(passkeys)
+			.where(eq(passkeys.credentialId, authResponse.id))
+			.limit(1);
 
-	const authResponse = body.response as unknown as AuthenticationResponseJSON;
-	const db = drizzle(c.env.DB);
+		if (!pk[0]) {
+			// 均一なエラーメッセージ・レスポンスタイミング
+			return c.json({ error: "Authentication failed" }, 401);
+		}
 
-	const pk = await db
-		.select()
-		.from(passkeys)
-		.where(eq(passkeys.credentialId, authResponse.id))
-		.limit(1);
+		let verification;
+		try {
+			verification = await verifyAuthenticationResponse({
+				response: authResponse,
+				expectedChallenge: state.challenge,
+				expectedOrigin: getOrigin(c.req.url),
+				expectedRPID: getRpId(c.req.url),
+				credential: {
+					id: pk[0].credentialId,
+					publicKey: base64UrlToUint8Array(pk[0].publicKey),
+					counter: pk[0].counter,
+					transports: pk[0].transports ? JSON.parse(pk[0].transports) : undefined,
+				},
+			});
+		} catch {
+			return c.json({ error: "Authentication failed" }, 401);
+		}
 
-	if (!pk[0]) {
-		// 均一なエラーメッセージ・レスポンスタイミング
-		return c.json({ error: "Authentication failed" }, 401);
-	}
+		if (!verification.verified) {
+			return c.json({ error: "Authentication failed" }, 401);
+		}
 
-	let verification;
-	try {
-		verification = await verifyAuthenticationResponse({
-			response: authResponse,
-			expectedChallenge: state.challenge,
-			expectedOrigin: getOrigin(c.req.url),
-			expectedRPID: getRpId(c.req.url),
-			credential: {
-				id: pk[0].credentialId,
-				publicKey: base64UrlToUint8Array(pk[0].publicKey),
-				counter: pk[0].counter,
-				transports: pk[0].transports ? JSON.parse(pk[0].transports) : undefined,
-			},
+		// counterを更新
+		await db
+			.update(passkeys)
+			.set({ counter: verification.authenticationInfo.newCounter })
+			.where(eq(passkeys.id, pk[0].id));
+
+		// セッション作成
+		const sessionToken = crypto.randomUUID();
+		const tokenHash = await hashToken(sessionToken);
+		const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+		await db.insert(sessions).values({
+			tokenHash,
+			userId: pk[0].userId,
+			expiresAt,
 		});
-	} catch {
-		return c.json({ error: "Authentication failed" }, 401);
-	}
 
-	if (!verification.verified) {
-		return c.json({ error: "Authentication failed" }, 401);
-	}
+		await db
+			.update(users)
+			.set({ lastLoginAt: new Date().toISOString() })
+			.where(eq(users.id, pk[0].userId));
 
-	// counterを更新
-	await db
-		.update(passkeys)
-		.set({ counter: verification.authenticationInfo.newCounter })
-		.where(eq(passkeys.id, pk[0].id));
+		setCookie(c, sessionCookieName(c.req.url), sessionToken, sessionCookieOptions(c.req.url));
+		await rememberLastLoginMethod(c, {
+			method: "passkey",
+			passkeyName: pk[0].name || "Unnamed passkey",
+		});
 
-	// セッション作成
-	const sessionToken = crypto.randomUUID();
-	const tokenHash = await hashToken(sessionToken);
-	const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-
-	await db.insert(sessions).values({
-		tokenHash,
-		userId: pk[0].userId,
-		expiresAt,
-	});
-
-	await db
-		.update(users)
-		.set({ lastLoginAt: new Date().toISOString() })
-		.where(eq(users.id, pk[0].userId));
-
-	setCookie(c, sessionCookieName(c.req.url), sessionToken, sessionCookieOptions(c.req.url));
-
-	return c.json({ ok: true });
-});
+		return c.json({ ok: true });
+	},
+);
 
 export { passkeyApi };

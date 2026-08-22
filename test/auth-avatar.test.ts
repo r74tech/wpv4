@@ -89,6 +89,7 @@ describe("OAuth avatar provisioning", () => {
 				avatar_unix_name: "user",
 			});
 			expect(sqlite.query("SELECT COUNT(*) AS count FROM sessions").get()).toEqual({ count: 1 });
+			expect(response.headers.get("Set-Cookie")).toContain("last_login_method=");
 		} finally {
 			globalThis.fetch = originalFetch;
 			console.error = originalConsoleError;

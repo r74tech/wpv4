@@ -1,6 +1,8 @@
 import { Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
-import type { Bindings } from "../src/types/env";
+import { Hono } from "hono";
+import { rememberLastLoginMethod, type LastLoginMethod } from "../src/lib/last-login-method";
+import type { AppEnv, Bindings } from "../src/types/env";
 import { hashToken } from "../src/middleware/session";
 
 mock.module("client-manifest-data", () => ({ default: {} }));
@@ -105,6 +107,18 @@ function createEnv(sqlite: Database): Bindings {
 	};
 }
 
+async function createLastLoginCookie(
+	env: Bindings,
+	lastLoginMethod: LastLoginMethod,
+): Promise<string> {
+	const cookieApp = new Hono<AppEnv>().get("/", async (c) => {
+		await rememberLastLoginMethod(c, lastLoginMethod);
+		return c.body(null);
+	});
+	const response = await cookieApp.request("http://localhost/", undefined, env);
+	return response.headers.get("Set-Cookie")?.split(";", 1)[0] ?? "";
+}
+
 describe("route-level SSR shell state", () => {
 	const sqlite = createDatabase();
 	const env = createEnv(sqlite);
@@ -192,6 +206,46 @@ describe("route-level SSR shell state", () => {
 		expect(response.status).toBe(200);
 		expect(html).toContain('<nav class="auth-nav" id="auth-user-nav"></nav>');
 		expect(html).not.toContain('href="/user/settings"');
+	});
+
+	test("renders the previous passkey name and Conditional UI input", async () => {
+		const cookie = await createLastLoginCookie(env, {
+			method: "passkey",
+			passkeyName: '<MacBook & "Touch ID">',
+		});
+		const response = await app.request(
+			"http://localhost/auth/login",
+			{ headers: { Cookie: cookie } },
+			env,
+		);
+		const html = await response.text();
+
+		expect(response.status).toBe(200);
+		expect(html).toContain('id="passkey-autofill"');
+		expect(html).toContain('autocomplete="webauthn"');
+		expect(html).toContain('class="sr-only"');
+		expect(html).toContain('tabindex="-1"');
+		expect(html).toContain('aria-hidden="true"');
+		expect(html).not.toContain("Choose a saved passkey");
+		expect(html).not.toContain("Select from browser autofill");
+		expect(html).toContain('<span class="last-used-badge">Last used</span>');
+		expect(html).toContain("&lt;MacBook &amp; &quot;Touch ID&quot;&gt;");
+		expect(html).not.toContain('<MacBook & "Touch ID">');
+	});
+
+	test("marks Wikidot as the previous login method", async () => {
+		const cookie = await createLastLoginCookie(env, { method: "wikidot" });
+		const response = await app.request(
+			"http://localhost/auth/login",
+			{ headers: { Cookie: cookie } },
+			env,
+		);
+		const html = await response.text();
+
+		expect(html).toContain(
+			'<a href="/auth/oauth" class="btn btn-primary login-method"><span>Sign in with Wikidot</span><span class="last-used-badge">Last used</span></a>',
+		);
+		expect(html).not.toContain('class="last-passkey-name"');
 	});
 
 	test("renders the authenticated auth nav for a user page", async () => {

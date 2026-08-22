@@ -1,4 +1,9 @@
-import { startRegistration, startAuthentication } from "@simplewebauthn/browser";
+import {
+	startRegistration,
+	startAuthentication,
+	browserSupportsWebAuthnAutofill,
+} from "@simplewebauthn/browser";
+import { createPasskeyLogin } from "./passkey-login";
 
 function $(sel: string): HTMLElement | null {
 	return document.querySelector(sel);
@@ -56,42 +61,35 @@ async function deletePasskey(id: string) {
 	}
 }
 
-// --- Passkeyログイン ---
-
-async function loginWithPasskey() {
-	const status = $("#login-status-msg");
-	try {
-		const optRes = await fetch("/api/passkeys/login/options");
-		if (!optRes.ok) throw new Error("Failed to get options");
-		const options = await optRes.json();
-
-		const result = await startAuthentication({ optionsJSON: options });
-
-		const verifyRes = await fetch("/api/passkeys/login/verify", {
-			method: "POST",
-			headers: { "Content-Type": "application/json", Origin: window.location.origin },
-			body: JSON.stringify({ response: result }),
-		});
-
-		if (!verifyRes.ok) {
-			const err = (await verifyRes.json()) as { error: string };
-			throw new Error(err.error);
-		}
-
-		window.location.href = "/";
-	} catch (err) {
-		if (err instanceof Error && err.name === "NotAllowedError") return;
-		if (status) {
-			status.innerHTML = `<div class="status-msg error">${err instanceof Error ? err.message : "Login failed"}</div>`;
-		}
-	}
-}
-
 // --- 初期化 ---
 
 document.addEventListener("DOMContentLoaded", () => {
 	$("#btn-register-passkey")?.addEventListener("click", registerPasskey);
-	$("#btn-passkey-login")?.addEventListener("click", loginWithPasskey);
+
+	const passkeyLogin = createPasskeyLogin({
+		origin: window.location.origin,
+		fetch: (input, init) => window.fetch(input, init),
+		startAuthentication,
+		browserSupportsAutofill: browserSupportsWebAuthnAutofill,
+		showError(message) {
+			const status = $("#login-status-msg");
+			if (!status) return;
+			const error = document.createElement("div");
+			error.className = "status-msg error";
+			error.textContent = message;
+			status.replaceChildren(error);
+		},
+		navigate(path) {
+			window.location.href = path;
+		},
+	});
+
+	$("#btn-passkey-login")?.addEventListener("click", () => {
+		void passkeyLogin.startExplicit();
+	});
+	if ($("#passkey-autofill")) {
+		void passkeyLogin.startConditional();
+	}
 
 	document.addEventListener("click", (e) => {
 		const target = e.target as HTMLElement;
