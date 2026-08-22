@@ -90,7 +90,9 @@ document.addEventListener("DOMContentLoaded", () => {
 		themeToggle.addEventListener("click", () => {
 			const theme: Theme = currentTheme() === "dark" ? "light" : "dark";
 			document.documentElement.dataset.theme = theme;
-			localStorage.setItem("auth-theme", theme);
+			try {
+				localStorage.setItem("auth-theme", theme);
+			} catch {}
 			updateThemeToggle(themeToggle);
 		});
 	}
