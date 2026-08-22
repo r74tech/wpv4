@@ -205,6 +205,8 @@ describe("route-level SSR shell state", () => {
 
 		expect(response.status).toBe(200);
 		expect(html).toContain('<nav class="auth-nav" id="auth-user-nav"></nav>');
+		expect(html).toContain('class="theme-toggle" id="theme-toggle"');
+		expect(html).toContain('<span id="theme-toggle-icon" aria-hidden="true">◐</span>');
 		expect(html).not.toContain('href="/user/settings"');
 	});
 
@@ -258,8 +260,13 @@ describe("route-level SSR shell state", () => {
 
 		expect(response.status).toBe(200);
 		expect(html).toContain('<nav class="auth-nav" id="auth-user-nav">');
+		expect(html).toContain('<span class="auth-nav-group">');
+		expect(html).toContain('<span class="auth-account-group">');
 		expect(html).toContain('<a href="/user/settings">Settings</a>');
-		expect(html).toContain("<span>Owner</span>");
+		expect(html).toContain(
+			'<a href="javascript:;" id="btn-logout" class="auth-signout">Sign out</a>',
+		);
+		expect(html).toContain('<span class="auth-user-name">Owner</span>');
 	});
 
 	test("deletes the host-prefixed session cookie over HTTPS", async () => {

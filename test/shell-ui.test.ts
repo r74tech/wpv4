@@ -109,6 +109,7 @@ describe("renderAuthUserNav", () => {
 		expect(html).toContain('<a href="/user/settings">Settings</a>');
 		expect(html).toContain('<a href="/user/activities">Activities</a>');
 		expect(html).toContain('<a href="/">Wiki</a>');
-		expect(html).toContain("<span>利用者 &lt;One&gt;</span>");
+		expect(html).toContain('<span class="auth-user-name">利用者 &lt;One&gt;</span>');
+		expect(html).toContain('id="btn-logout" class="auth-signout"');
 	});
 });

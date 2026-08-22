@@ -9,6 +9,24 @@ function $(sel: string): HTMLElement | null {
 	return document.querySelector(sel);
 }
 
+type Theme = "light" | "dark";
+
+function currentTheme(): Theme {
+	const theme = document.documentElement.dataset.theme;
+	if (theme === "light" || theme === "dark") return theme;
+	return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function updateThemeToggle(button: HTMLElement): void {
+	const nextTheme = currentTheme() === "dark" ? "light" : "dark";
+	const label = `Switch to ${nextTheme} mode`;
+	const icon = button.querySelector<HTMLElement>("#theme-toggle-icon");
+	if (icon) icon.textContent = nextTheme === "dark" ? "☾" : "☀";
+	button.dataset.targetTheme = nextTheme;
+	button.setAttribute("aria-label", label);
+	button.setAttribute("title", label);
+}
+
 // --- Passkey登録 ---
 
 async function registerPasskey() {
@@ -66,6 +84,17 @@ async function deletePasskey(id: string) {
 document.addEventListener("DOMContentLoaded", () => {
 	$("#btn-register-passkey")?.addEventListener("click", registerPasskey);
 
+	const themeToggle = $("#theme-toggle");
+	if (themeToggle) {
+		updateThemeToggle(themeToggle);
+		themeToggle.addEventListener("click", () => {
+			const theme: Theme = currentTheme() === "dark" ? "light" : "dark";
+			document.documentElement.dataset.theme = theme;
+			localStorage.setItem("auth-theme", theme);
+			updateThemeToggle(themeToggle);
+		});
+	}
+
 	const passkeyLogin = createPasskeyLogin({
 		origin: window.location.origin,
 		fetch: (input, init) => window.fetch(input, init),
@@ -90,6 +119,16 @@ document.addEventListener("DOMContentLoaded", () => {
 	if ($("#passkey-autofill")) {
 		void passkeyLogin.startConditional();
 	}
+
+	$("#btn-logout")?.addEventListener("click", async () => {
+		const response = await fetch("/auth/logout", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Origin: window.location.origin },
+		});
+		if (response.ok) {
+			window.location.href = "/auth/login";
+		}
+	});
 
 	document.addEventListener("click", (e) => {
 		const target = e.target as HTMLElement;

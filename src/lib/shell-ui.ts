@@ -83,9 +83,14 @@ export function renderAuthUserNav(user: ShellUser | null): string {
 	if (!user) return "";
 
 	return (
+		`<span class="auth-nav-group">` +
 		`<a href="/user/settings">Settings</a>` +
 		`<a href="/user/activities">Activities</a>` +
 		`<a href="/">Wiki</a>` +
-		`<span>${escapeHtml(user.name)}</span>`
+		`</span>` +
+		`<span class="auth-account-group">` +
+		`<span class="auth-user-name">${escapeHtml(user.name)}</span>` +
+		`<a href="javascript:;" id="btn-logout" class="auth-signout">Sign out</a>` +
+		`</span>`
 	);
 }
