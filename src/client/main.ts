@@ -4,6 +4,7 @@ import { $, escapeAttr, escapeHtml, setHtml } from "./dom";
 import { normalizePagePath, shouldReloadPage } from "./navigation";
 import { buildPreviewRequest, isPreviewCategory } from "./preview";
 import { commitPagePresentation } from "./page-presentation";
+import { renderSourceWithIncludeLinks } from "./source-view";
 import { formatDocumentTitle } from "../lib/document-title";
 import {
 	renderLoginStatus,
@@ -355,11 +356,12 @@ async function showEditor(path: string) {
 
 // --- ソース表示 ---
 
-async function showSource(path: string) {
+async function showSource(path: string, includeReference = false) {
 	const actionArea = $("#action-area");
 	if (!actionArea) return;
 
-	const res = await fetch(`/api/page-source/${path}`);
+	const suffix = includeReference ? "?include=1" : "";
+	const res = await fetch(`/api/page-source/${path}${suffix}`);
 	if (!res.ok) {
 		setHtml(actionArea, "<p>Failed to load source.</p>");
 		return;
@@ -370,7 +372,7 @@ async function showSource(path: string) {
 		actionArea,
 		`<a href="javascript:;" class="action-area-close" id="btn-close-action">Close</a>` +
 			`<h1>Page Source</h1>` +
-			`<div class="page-source"><pre>${escapeHtml(data.source)}</pre></div>`,
+			`<div class="page-source"><pre>${renderSourceWithIncludeLinks(data.source)}</pre></div>`,
 	);
 	$("#btn-close-action")?.addEventListener("click", () => setHtml(actionArea, ""));
 }
@@ -463,7 +465,7 @@ function setupEventHandlers() {
 			} else if (action === "compare-revisions") {
 				showRevisionCompare(path);
 			} else if (action === "source") {
-				showSource(path);
+				showSource(path, actionAnchor.hasAttribute("data-include-source"));
 			} else if (action === "view-revision") {
 				const rev = Number(actionAnchor.dataset.rev);
 				if (!Number.isNaN(rev)) showRevisionView(path, rev);

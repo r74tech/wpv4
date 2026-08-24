@@ -26,6 +26,7 @@ import {
 	visibilityPolicy,
 } from "@/lib/visibility";
 import { findReferencingPages } from "@/services/visibility-check";
+import { resolveLocalIncludeUnixName } from "@/lib/include-reference";
 import type { AppEnv } from "@/types/env";
 
 const api = new Hono<AppEnv>();
@@ -107,14 +108,17 @@ api.get("/page/*", async (c) => {
 api.get("/page-source/*", async (c) => {
 	const pagePath = c.req.path.replace("/api/page-source/", "");
 	const [category, unixName] = parseAndNormalize(pagePath);
+	const includeUnixName =
+		c.req.query("include") === "1"
+			? resolveLocalIncludeUnixName({ site: null, page: pagePath })
+			: null;
 	const viewerId = c.get("user")?.id ?? null;
 	const db = drizzle(c.env.DB);
+	const pageSelector = includeUnixName
+		? eq(pages.unixName, includeUnixName)
+		: and(eq(pages.category, category), eq(pages.unixName, unixName));
 
-	const page = await db
-		.select()
-		.from(pages)
-		.where(and(eq(pages.category, category), eq(pages.unixName, unixName)))
-		.limit(1);
+	const page = await db.select().from(pages).where(pageSelector).limit(1);
 
 	if (!page[0]) {
 		return c.json({ error: "Page not found" }, 404);

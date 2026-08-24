@@ -1,6 +1,7 @@
 import { diffArrays, diffLines } from "diff";
 import { $, escapeAttr, escapeHtml, setHtml } from "./dom";
 import { buildPreviewRequest } from "./preview";
+import { renderSourceWithIncludeLinks } from "./source-view";
 import { renderAvatarUser } from "../lib/user-markup";
 
 const HISTORY_PAGE_SIZE = 20;
@@ -169,7 +170,7 @@ export async function showRevisionSource(path: string, num: number) {
 	openHistorySubarea(
 		`<h2>Page source for revision no. ${num}</h2>` +
 			(data.comment ? `<p><em>${escapeHtml(data.comment)}</em></p>` : "") +
-			`<div class="page-source"><pre>${escapeHtml(data.source)}</pre></div>`,
+			`<div class="page-source"><pre>${renderSourceWithIncludeLinks(data.source)}</pre></div>`,
 	);
 }
 
