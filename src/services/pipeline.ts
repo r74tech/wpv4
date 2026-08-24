@@ -4,6 +4,7 @@ import type {
 	TagCloudDataRequirement,
 	TagCloudExternalData,
 } from "@wdprlib/parser";
+import type { Element, SyntaxTree } from "@wdprlib/ast";
 import { renderWikitext as renderProcessedWikitext } from "@wdprlib/render";
 import { drizzle } from "drizzle-orm/d1";
 import { eq, and, ne, inArray, notInArray, desc, asc, sql, type SQL } from "drizzle-orm";
@@ -22,27 +23,68 @@ export type RenderResult = {
 
 const AVATAR_USER_LOOKUP_LIMIT = 100;
 
-function collectAvatarUserNames(ast: unknown): string[] {
-	const names = new Set<string>();
-	const seen = new Set<object>();
-	const stack: unknown[] = [ast];
-	while (stack.length > 0 && names.size < AVATAR_USER_LOOKUP_LIMIT) {
-		const value = stack.pop();
-		if (typeof value !== "object" || value === null || seen.has(value)) continue;
-		seen.add(value);
-		if (
-			"element" in value &&
-			value.element === "user" &&
-			"data" in value &&
-			typeof value.data === "object" &&
-			value.data !== null &&
-			"name" in value.data &&
-			typeof value.data.name === "string"
-		) {
-			names.add(value.data.name.trim().toLowerCase().toWellFormed());
-		}
-		stack.push(...Object.values(value));
+function pushDefinitionListChildren(
+	stack: Element[][],
+	items: Array<{ key: Element[]; value: Element[] }>,
+): void {
+	for (const item of items) stack.push(item.key, item.value);
+}
+
+function pushElementChildren(stack: Element[][], element: Element): void {
+	switch (element.element) {
+		case "container":
+		case "anchor":
+		case "collapsible":
+		case "color":
+		case "include":
+		case "if-tags":
+			stack.push(element.data.elements);
+			break;
+		case "list":
+			for (const item of element.data.items) {
+				if (item["item-type"] === "elements") stack.push(item.elements);
+				else pushElementChildren(stack, item);
+			}
+			break;
+		case "table":
+			for (const row of element.data.rows) {
+				for (const cell of row.cells) stack.push(cell.elements);
+			}
+			break;
+		case "definition-list":
+			pushDefinitionListChildren(stack, element.data);
+			break;
+		case "bibliography-block":
+			pushDefinitionListChildren(stack, element.data.entries);
+			break;
+		case "tab-view":
+			for (const tab of element.data) stack.push(tab.elements);
+			break;
+		case "if":
+		case "ifexpr":
+			stack.push(element.data.then, element.data.else);
+			break;
 	}
+}
+
+function collectAvatarUserNames(ast: SyntaxTree): string[] {
+	const names = new Set<string>();
+	const stack: Element[][] = [ast.elements];
+	if (ast["table-of-contents"]) stack.push(ast["table-of-contents"]);
+	if (ast.footnotes) stack.push(...ast.footnotes);
+
+	while (stack.length > 0 && names.size < AVATAR_USER_LOOKUP_LIMIT) {
+		const elements = stack.pop();
+		if (!elements) continue;
+		for (const element of elements) {
+			if (element.element === "user") {
+				names.add(element.data.name.trim().toLowerCase().toWellFormed());
+				if (names.size >= AVATAR_USER_LOOKUP_LIMIT) break;
+			}
+			pushElementChildren(stack, element);
+		}
+	}
+
 	return [...names];
 }
 
@@ -630,16 +672,17 @@ export async function renderWikitext(
 		htmlBlockPersistence.set(key, persistence);
 		return persistence;
 	};
+	const resolveUser = (username: string) => {
+		const normalized = username.trim().toLowerCase().toWellFormed();
+		return {
+			url: userProfileUrl(normalized),
+			avatarUrl: userAvatarUrl(filesDomain, avatarIds.get(normalized) ?? null),
+		};
+	};
 	const rendered = await renderProcessedWikitext(document, {
 		styleMode: "separate",
 		resolvers: {
-			user: (username) => {
-				const normalized = username.trim().toLowerCase().toWellFormed();
-				return {
-					url: userProfileUrl(normalized),
-					avatarUrl: userAvatarUrl(filesDomain, avatarIds.get(normalized) ?? null),
-				};
-			},
+			user: resolveUser,
 			resolvePageExistence: (requestedPages) => findExistingPages(db, requestedPages, viewerId),
 			resolveHtmlBlockUrl: async ({ content }) => {
 				const hash = await sha256Hex(content);

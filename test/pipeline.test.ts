@@ -220,6 +220,87 @@ describe("renderWikitext pipeline adapter", () => {
 		expect(rendered.html.match(/avatar\?userId=-1/g)).toHaveLength(101);
 	});
 
+	test("finds avatar users in renderer side channels and non-generic child branches", async () => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+		sqlite.run(`
+			INSERT INTO users (id, wikidot_id, name, unix_name, avatar_unix_name) VALUES
+				(1, 101, 'Footnote', 'footnote-user', 'footnote-user'),
+				(2, 102, 'If', 'if-user', 'if-user'),
+				(3, 103, 'IfExpr', 'ifexpr-user', 'ifexpr-user'),
+				(4, 104, 'Bibliography', 'bibliography-user', 'bibliography-user'),
+				(5, 105, 'Tab', 'tab-user', 'tab-user');
+		`);
+		const source = [
+			"Body[[footnote]][[*user footnote-user]][[/footnote]]",
+			"[[footnoteblock]]",
+			"[[#if true | [[*user if-user]] | hidden ]]",
+			"[[#ifexpr 1 | [[*user ifexpr-user]] | hidden ]]",
+			"[[bibliography]]",
+			": ref : [[*user bibliography-user]]",
+			"[[/bibliography]]",
+			"[[tabview]]",
+			"[[tab User]][[*user tab-user]][[/tab]]",
+			"[[/tabview]]",
+		].join("\n");
+
+		const rendered = await renderWikitext(source, createEnv(sqlite), {
+			pageName: "start",
+			category: "_default",
+		});
+
+		for (const id of [101, 102, 103, 104, 105]) {
+			expect(rendered.html).toContain(`avatar?userId=${id}`);
+		}
+	});
+
+	test("preserves WDPR async resolvers after the avatar lookup limit", async () => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+		const executions: QueryExecution[] = [];
+		const source = [
+			...Array.from({ length: 101 }, (_, index) => `[[*user user-${index}]]`),
+			"[[[missing-page]]]",
+			"[[html]]<p>block</p>[[/html]]",
+		].join("\n");
+
+		const rendered = await renderWikitext(source, createEnv(sqlite, { executions }), {
+			pageName: "start",
+			category: "_default",
+		});
+
+		expect(pageExistenceQueries(executions)).toHaveLength(1);
+		expect(rendered.html).toContain('class="newpage"');
+		expect(rendered.html).toMatch(
+			/src="https:\/\/files\.example\.com\/local--html\/start\/[a-f0-9]{64}"/,
+		);
+	});
+
+	test("renders one million plain and structurally dense characters", async () => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+		const env = createEnv(sqlite);
+		const plain = "あ".repeat(1_000_000);
+		const dense = "[[div]]x[[/div]]\n".repeat(58_823).slice(0, 1_000_000);
+
+		const plainResult = await renderWikitext(plain, env, {
+			pageName: "plain",
+			category: "_default",
+		});
+		const denseResult = await renderWikitext(dense, env, {
+			pageName: "dense",
+			category: "_default",
+		});
+
+		expect(plainResult.html).toStartWith("<p>あああ");
+		expect(plainResult.html).toEndWith("あああ</p>");
+		expect(plainResult.styles).toEqual([]);
+		expect(denseResult.html).toStartWith("<p>[[div]]x[[/div]]<br />");
+		expect(denseResult.html).toEndWith("</p>");
+		expect(denseResult.html.length).toBeGreaterThan(dense.length);
+		expect(denseResult.styles).toEqual([]);
+	});
+
 	test("replaces malformed UTF-16 before building user URLs", async () => {
 		const sqlite = createDatabase();
 		databases.push(sqlite);
