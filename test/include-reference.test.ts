@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { resolveLocalIncludeUnixName } from "../src/lib/include-reference";
+import {
+	formatIncludeSourcePath,
+	parseIncludeSourcePath,
+	resolveLocalIncludeUnixName,
+} from "../src/lib/include-reference";
 
 describe("resolveLocalIncludeUnixName", () => {
 	test("accepts local page names regardless of site or category separator", () => {
@@ -14,5 +18,17 @@ describe("resolveLocalIncludeUnixName", () => {
 		expect(resolveLocalIncludeUnixName({ site: "scp-jp", page: `public:${ulid}` })).toBe(
 			ulid.toLowerCase(),
 		);
+	});
+});
+
+describe("include source path", () => {
+	test("round-trips the site and page used by a cross-site include", () => {
+		const path = formatIncludeSourcePath({ site: "scp-jp", page: "component:image-block" });
+
+		expect(path).toBe(":scp-jp:component:image-block");
+		expect(parseIncludeSourcePath(path)).toEqual({
+			site: "scp-jp",
+			page: "component:image-block",
+		});
 	});
 });

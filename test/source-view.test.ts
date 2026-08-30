@@ -21,7 +21,7 @@ describe("renderSourceWithIncludeLinks", () => {
 			'[[include <a href="javascript:;" data-action="source" data-include-source data-path="public;01ARZ3NDEKTSV4RRFFQ69G5FAV">public;01ARZ3NDEKTSV4RRFFQ69G5FAV</a>]]',
 		);
 		expect(html).toContain(
-			'[[include <a href="javascript:;" data-action="source" data-include-source data-path="component:image-block">:scp-jp:component:image-block</a> | name="CE46.jpg"]]',
+			'[[include <a href="javascript:;" data-action="source" data-include-source data-path=":scp-jp:component:image-block">:scp-jp:component:image-block</a> | name="CE46.jpg"]]',
 		);
 
 		const malformed = Array(1_000).fill("[[include broken").join("\n");

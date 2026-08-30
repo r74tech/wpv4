@@ -1,4 +1,5 @@
 import { extractIncludeReferences } from "@wdprlib/parser";
+import { formatIncludeSourcePath } from "../lib/include-reference";
 import { escapeAttr, escapeHtml } from "./dom";
 
 const INCLUDE_TARGET_PATTERN = /^(\[\[include\s+)([^\s|\]]+)/i;
@@ -25,7 +26,7 @@ export function renderSourceWithIncludeLinks(source: string): string {
 		html += escapeHtml(source.slice(cursor, reference.start));
 		const directive = source.slice(reference.start, reference.end);
 		const match = INCLUDE_TARGET_PATTERN.exec(directive);
-		const pagePath = reference.location.page.replace(/^\/+|\/+$/g, "").split("/")[0] ?? "";
+		const pagePath = formatIncludeSourcePath(reference.location);
 
 		if (!match || !pagePath) {
 			html += escapeHtml(directive);
