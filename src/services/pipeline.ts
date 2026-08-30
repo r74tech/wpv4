@@ -4,7 +4,6 @@ import type {
 	TagCloudDataRequirement,
 	TagCloudExternalData,
 } from "@wdprlib/parser";
-import type { Element, SyntaxTree } from "@wdprlib/ast";
 import { renderWikitext as renderProcessedWikitext } from "@wdprlib/render";
 import { drizzle } from "drizzle-orm/d1";
 import { eq, and, ne, inArray, notInArray, desc, asc, sql, type SQL } from "drizzle-orm";
@@ -22,71 +21,6 @@ export type RenderResult = {
 };
 
 const AVATAR_USER_LOOKUP_LIMIT = 100;
-
-function pushDefinitionListChildren(
-	stack: Element[][],
-	items: Array<{ key: Element[]; value: Element[] }>,
-): void {
-	for (const item of items) stack.push(item.key, item.value);
-}
-
-function pushElementChildren(stack: Element[][], element: Element): void {
-	switch (element.element) {
-		case "container":
-		case "anchor":
-		case "collapsible":
-		case "color":
-		case "include":
-		case "if-tags":
-			stack.push(element.data.elements);
-			break;
-		case "list":
-			for (const item of element.data.items) {
-				if (item["item-type"] === "elements") stack.push(item.elements);
-				else pushElementChildren(stack, item);
-			}
-			break;
-		case "table":
-			for (const row of element.data.rows) {
-				for (const cell of row.cells) stack.push(cell.elements);
-			}
-			break;
-		case "definition-list":
-			pushDefinitionListChildren(stack, element.data);
-			break;
-		case "bibliography-block":
-			pushDefinitionListChildren(stack, element.data.entries);
-			break;
-		case "tab-view":
-			for (const tab of element.data) stack.push(tab.elements);
-			break;
-		case "if":
-		case "ifexpr":
-			stack.push(element.data.then, element.data.else);
-			break;
-	}
-}
-
-function collectAvatarUserNames(ast: SyntaxTree): string[] {
-	const names = new Set<string>();
-	const stack: Element[][] = [ast.elements];
-	if (ast["table-of-contents"]) stack.push(ast["table-of-contents"]);
-	if (ast.footnotes) stack.push(...ast.footnotes);
-
-	while (stack.length > 0 && names.size < AVATAR_USER_LOOKUP_LIMIT) {
-		const elements = stack.pop();
-		if (!elements) continue;
-		for (const element of elements) {
-			if (element.element === "user") {
-				names.add(element.data.name.trim().toLowerCase().toWellFormed());
-				if (names.size >= AVATAR_USER_LOOKUP_LIMIT) break;
-			}
-			pushElementChildren(stack, element);
-		}
-	}
-
-	return [...names];
-}
 
 /**
  * viewer視点で「閲覧可能」なページの WHERE 句（pageExists / include / fetch 用）。
@@ -636,21 +570,6 @@ export async function renderWikitext(
 			fetchTagCloud: (requirement) => fetchTagCloudData(db, requirement),
 		},
 	});
-	const avatarNames = collectAvatarUserNames(document.ast);
-	const avatarRows =
-		avatarNames.length === 0
-			? []
-			: await db
-					.select({ unixName: users.avatarUnixName, wikidotId: users.wikidotId })
-					.from(users)
-					.where(inArray(users.avatarUnixName, avatarNames));
-	const avatarIds = new Map<string, number | null>();
-	for (const row of avatarRows) {
-		if (!row.unixName) continue;
-		const normalized = row.unixName.trim().toLowerCase().toWellFormed();
-		avatarIds.set(normalized, avatarIds.has(normalized) ? null : row.wikidotId);
-	}
-
 	const pagePolicy = visibilityPolicy(options.category);
 	const isPrivatePage = pagePolicy.visibility === "private";
 	const r2Prefix = isPrivatePage ? "private--html" : "local--html";
@@ -672,17 +591,39 @@ export async function renderWikitext(
 		htmlBlockPersistence.set(key, persistence);
 		return persistence;
 	};
-	const resolveUser = (username: string) => {
-		const normalized = username.trim().toLowerCase().toWellFormed();
-		return {
-			url: userProfileUrl(normalized),
-			avatarUrl: userAvatarUrl(filesDomain, avatarIds.get(normalized) ?? null),
-		};
-	};
 	const rendered = await renderProcessedWikitext(document, {
 		styleMode: "separate",
 		resolvers: {
-			user: resolveUser,
+			resolveUsers: async (usernames) => {
+				const lookupNames = new Set<string>();
+				for (const username of usernames) {
+					if (lookupNames.size >= AVATAR_USER_LOOKUP_LIMIT) break;
+					lookupNames.add(username.trim().toLowerCase().toWellFormed());
+				}
+				const avatarRows = await db
+					.select({ unixName: users.avatarUnixName, wikidotId: users.wikidotId })
+					.from(users)
+					.where(inArray(users.avatarUnixName, [...lookupNames]));
+				const avatarIds = new Map<string, number | null>();
+				for (const row of avatarRows) {
+					if (!row.unixName) continue;
+					const normalized = row.unixName.trim().toLowerCase().toWellFormed();
+					avatarIds.set(normalized, avatarIds.has(normalized) ? null : row.wikidotId);
+				}
+
+				return new Map(
+					usernames.map((username) => {
+						const normalized = username.trim().toLowerCase().toWellFormed();
+						return [
+							username,
+							{
+								url: userProfileUrl(normalized),
+								avatarUrl: userAvatarUrl(filesDomain, avatarIds.get(normalized) ?? null),
+							},
+						] as const;
+					}),
+				);
+			},
 			resolvePageExistence: (requestedPages) => findExistingPages(db, requestedPages, viewerId),
 			resolveHtmlBlockUrl: async ({ content }) => {
 				const hash = await sha256Hex(content);

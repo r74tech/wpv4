@@ -254,6 +254,34 @@ describe("renderWikitext pipeline adapter", () => {
 		}
 	});
 
+	test("looks up avatar ownership only for rendered users", async () => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+		const executions: QueryExecution[] = [];
+		sqlite.run(
+			"INSERT INTO users (id, wikidot_id, name, unix_name, avatar_unix_name) VALUES (1, 101, 'Visible', 'visible-user', 'visible-user')",
+		);
+
+		const source = [
+			"[[iftags +visible]]",
+			"[[*user visible-user]]",
+			"[[/iftags]]",
+			"[[iftags +hidden]]",
+			"[[*user hidden-user]]",
+			"[[/iftags]]",
+		].join("\n");
+		const rendered = await renderWikitext(source, createEnv(sqlite, { executions }), {
+			pageName: "start",
+			category: "_default",
+			tags: ["visible"],
+		});
+		const lookup = executions.find(({ sql }) => sql.includes("avatar_unix_name"));
+
+		expect(lookup?.params).toEqual(["visible-user"]);
+		expect(rendered.html).toContain("avatar?userId=101");
+		expect(rendered.html).not.toContain("hidden-user");
+	});
+
 	test("preserves WDPR async resolvers after the avatar lookup limit", async () => {
 		const sqlite = createDatabase();
 		databases.push(sqlite);
