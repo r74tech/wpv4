@@ -49,7 +49,7 @@ let renderedPagePath: string | null = null;
 function clearActionArea() {
 	// /new SSR で `data-new-type` が、 showEditor で `data-edit-path` が action-area に
 	// 残っていると、 SPA 遷移後も古いフォームと dataset が見えて setupPageForm() が
-	// 誤って新規作成 (POST /api/page/new) や旧 path への PUT を実行してしまう。
+	// 誤って新規作成 (POST /api/web/page/new) や旧 path への PUT を実行してしまう。
 	// ページ遷移時は必ずクリアする。
 	const area = $("#action-area");
 	if (!area) return;
@@ -87,7 +87,7 @@ async function loadPage(path: string) {
 	const cleanPath = cleanPagePath(path);
 
 	try {
-		const res = await fetch(`/api/page/${path}`);
+		const res = await fetch(`/api/web/page/${path}`);
 		if (!res.ok) {
 			if (res.status === 404) {
 				injectStyles([]);
@@ -207,7 +207,7 @@ async function loadSidebar() {
 	// SSRで既にコンテンツがあればスキップ
 	if (sidebar.children.length > 1) return;
 	try {
-		const res = await fetch("/api/sidebar");
+		const res = await fetch("/api/web/sidebar");
 		const data = (await res.json()) as { html: string };
 		const actions = sidebar.querySelector("#side-bar-actions");
 		const actionsHtml = actions ? actions.outerHTML : "";
@@ -223,7 +223,7 @@ async function loadTopbar() {
 	// SSRで既にコンテンツがあればスキップ
 	if (topbar.innerHTML.trim()) return;
 	try {
-		const res = await fetch("/api/topbar");
+		const res = await fetch("/api/web/topbar");
 		const data = (await res.json()) as { html: string };
 		setHtml(topbar, data.html || "");
 	} catch {
@@ -315,7 +315,7 @@ async function showEditor(path: string) {
 	const actionArea = $("#action-area");
 	if (!actionArea) return;
 
-	const res = await fetch(`/api/page-source/${path}`);
+	const res = await fetch(`/api/web/page-source/${path}`);
 	let title = "";
 	let source = "";
 	let tags: string[] = [];
@@ -361,7 +361,7 @@ async function showSource(path: string, includeReference = false) {
 	if (!actionArea) return;
 
 	const suffix = includeReference ? "?include=1" : "";
-	const res = await fetch(`/api/page-source/${path}${suffix}`);
+	const res = await fetch(`/api/web/page-source/${path}${suffix}`);
 	if (!res.ok) {
 		setHtml(actionArea, "<p>Failed to load source.</p>");
 		return;
@@ -500,7 +500,7 @@ async function toggleVisibility(
 	target: "public" | "share" | "private",
 	force: boolean,
 ): Promise<void> {
-	const res = await fetch(`/api/page/${ulid}/visibility`, {
+	const res = await fetch(`/api/web/page/${ulid}/visibility`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json", Origin: window.location.origin },
 		body: JSON.stringify({ target, expected_category: expectedCategory, force }),
@@ -755,7 +755,7 @@ function setupPageForm() {
 		const body = readPageFormBody();
 
 		if (newType !== null) {
-			const res = await fetch("/api/page/new", {
+			const res = await fetch("/api/web/page/new", {
 				method: "POST",
 				headers: { "Content-Type": "application/json", Origin: window.location.origin },
 				body: JSON.stringify({ type: newType, ...body }),
@@ -775,7 +775,7 @@ function setupPageForm() {
 
 		// edit モード
 		const baseRev = baseRevRaw && baseRevRaw.length > 0 ? Number(baseRevRaw) : null;
-		const res = await fetch(`/api/page/${editPath}`, {
+		const res = await fetch(`/api/web/page/${editPath}`, {
 			method: "PUT",
 			headers: { "Content-Type": "application/json", Origin: window.location.origin },
 			body: JSON.stringify({ ...body, base_revision_number: baseRev }),
@@ -809,7 +809,7 @@ function setupPageForm() {
 						})
 					: null;
 		if (previewBody === null) return;
-		const res = await fetch("/api/preview", {
+		const res = await fetch("/api/web/preview", {
 			method: "POST",
 			headers: { "Content-Type": "application/json", Origin: window.location.origin },
 			body: JSON.stringify(previewBody),

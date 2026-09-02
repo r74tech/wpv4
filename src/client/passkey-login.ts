@@ -93,7 +93,7 @@ export function createPasskeyLogin(dependencies: PasskeyLoginDependencies): {
 	function loadOptions(): Promise<AuthenticationOptionsResponse> {
 		if (!optionsRequest) {
 			optionsRequest = dependencies
-				.fetch("/api/passkeys/login/options")
+				.fetch("/api/web/passkeys/login/options")
 				.then(async (response) => {
 					if (!response.ok) throw new Error("Failed to get authentication options");
 					return parseOptionsResponse(await response.json());
@@ -113,7 +113,7 @@ export function createPasskeyLogin(dependencies: PasskeyLoginDependencies): {
 				optionsJSON: options,
 				useBrowserAutofill,
 			});
-			const verificationResponse = await dependencies.fetch("/api/passkeys/login/verify", {
+			const verificationResponse = await dependencies.fetch("/api/web/passkeys/login/verify", {
 				method: "POST",
 				headers: { "Content-Type": "application/json", Origin: dependencies.origin },
 				body: JSON.stringify({ stateKey, response: authenticationResponse }),

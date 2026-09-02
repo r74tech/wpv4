@@ -38,7 +38,9 @@ function createDatabase(): Database {
 			created_by INTEGER,
 			updated_by INTEGER,
 			created_at TEXT,
-			updated_at TEXT
+			updated_at TEXT,
+			deleted_by INTEGER,
+			deleted_at TEXT
 		);
 	`);
 	return sqlite;

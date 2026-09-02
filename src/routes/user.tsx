@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { drizzle } from "drizzle-orm/d1";
-import { eq, desc, like, sql, and as drizzleAnd, or as drizzleOr } from "drizzle-orm";
+import { eq, desc, like, sql, isNull, and as drizzleAnd, or as drizzleOr } from "drizzle-orm";
 import { users, revisions, pages, passkeys } from "@/db/schema";
 import { requireAuth } from "@/middleware/session";
 import { formatPagePath } from "@/services/pipeline";
@@ -57,7 +57,11 @@ user.get("/activities", async (c) => {
 		sql`${pages.category} != 'private'`,
 		eq(pages.createdBy, currentUser.id),
 	);
-	const conditions = [eq(revisions.createdBy, currentUser.id), privacyClause];
+	const conditions = [
+		eq(revisions.createdBy, currentUser.id),
+		privacyClause,
+		isNull(pages.deletedAt),
+	];
 	if (search) {
 		conditions.push(like(pages.unixName, `%${search}%`));
 	}

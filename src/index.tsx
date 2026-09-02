@@ -2,14 +2,13 @@ import { Hono } from "hono";
 import { raw } from "hono/utils/html";
 import { cors } from "hono/cors";
 import { drizzle } from "drizzle-orm/d1";
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { pages, pageTags } from "./db/schema";
 import { renderWikitext, parsePagePath, formatPagePath } from "./services/pipeline";
 import { renderNav } from "./services/nav";
 import { api } from "./routes/api";
 import { auth } from "./routes/auth";
 import { user } from "./routes/user";
-import { passkeyApi } from "./routes/passkey-api";
 import { WikidotShell } from "./components/WikidotShell";
 import { PageTitle } from "./components/PageTitle";
 import { resolveSession } from "./middleware/session";
@@ -29,7 +28,6 @@ app.use("*", resolveSession);
 app.use("/api/*", cors());
 
 app.route("/api", api);
-app.route("/api/passkeys", passkeyApi);
 app.route("/auth", auth);
 app.route("/user", user);
 
@@ -163,7 +161,9 @@ app.get("*", async (c) => {
 		db
 			.select()
 			.from(pages)
-			.where(and(eq(pages.category, category), eq(pages.unixName, unixName)))
+			.where(
+				and(eq(pages.category, category), eq(pages.unixName, unixName), isNull(pages.deletedAt)),
+			)
 			.limit(1),
 		renderNav(c.env, "side", viewerId),
 		renderNav(c.env, "top", viewerId),

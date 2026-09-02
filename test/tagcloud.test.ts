@@ -89,7 +89,8 @@ function createDatabase(): Database {
 			id INTEGER PRIMARY KEY,
 			category TEXT NOT NULL,
 			unix_name TEXT NOT NULL,
-			created_by INTEGER
+			created_by INTEGER,
+			deleted_at TEXT
 		);
 		CREATE TABLE page_tags (
 			id INTEGER PRIMARY KEY,

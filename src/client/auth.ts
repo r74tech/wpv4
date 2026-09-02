@@ -34,7 +34,7 @@ async function registerPasskey() {
 	const status = $("#passkey-status");
 
 	try {
-		const optRes = await fetch("/api/passkeys/register/options");
+		const optRes = await fetch("/api/web/passkeys/register/options");
 		if (!optRes.ok) throw new Error("Failed to get options");
 		const options = await optRes.json();
 
@@ -42,7 +42,7 @@ async function registerPasskey() {
 
 		const name = window.prompt("Name this passkey (optional):", "") ?? "";
 
-		const verifyRes = await fetch("/api/passkeys/register/verify", {
+		const verifyRes = await fetch("/api/web/passkeys/register/verify", {
 			method: "POST",
 			headers: { "Content-Type": "application/json", Origin: window.location.origin },
 			body: JSON.stringify({ response: result, name }),
@@ -70,7 +70,7 @@ async function registerPasskey() {
 async function deletePasskey(id: string) {
 	if (!window.confirm("Delete this passkey?")) return;
 
-	const res = await fetch(`/api/passkeys/${id}`, {
+	const res = await fetch(`/api/web/passkeys/${id}`, {
 		method: "DELETE",
 		headers: { "Content-Type": "application/json", Origin: window.location.origin },
 	});

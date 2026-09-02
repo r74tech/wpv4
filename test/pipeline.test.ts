@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
-import { renderWikitext } from "../src/services/pipeline";
+import { moveHtmlBlocksForVisibilityChange, renderWikitext } from "../src/services/pipeline";
 import type { Bindings } from "../src/types/env";
 
 type BoundStatement = {
@@ -65,8 +65,10 @@ function createDatabase(): Database {
 			is_locked INTEGER NOT NULL DEFAULT 0,
 			created_by INTEGER,
 			updated_by INTEGER,
+			deleted_by INTEGER,
 			created_at TEXT DEFAULT '2026-07-24T00:00:00.000Z',
-			updated_at TEXT DEFAULT '2026-07-24T00:00:00.000Z'
+			updated_at TEXT DEFAULT '2026-07-24T00:00:00.000Z',
+			deleted_at TEXT
 		);
 		CREATE TABLE page_tags (
 			id INTEGER PRIMARY KEY,
@@ -616,6 +618,45 @@ describe("renderWikitext pipeline adapter", () => {
 		).toBe(true);
 	});
 
+	test("restores already moved html-blocks when a visibility move fails partway", async () => {
+		const objects = new Map([
+			["local--html/page/a", "A"],
+			["local--html/page/b", "B"],
+		]);
+		let privateWrites = 0;
+		const r2 = {
+			async list({ prefix }: { prefix: string }) {
+				return {
+					objects: [...objects.keys()]
+						.filter((key) => key.startsWith(prefix))
+						.map((key) => ({ key })),
+					truncated: false,
+				};
+			},
+			async get(key: string) {
+				const value = objects.get(key);
+				return value === undefined ? null : { body: value, httpMetadata: {} };
+			},
+			async put(key: string, value: string) {
+				if (key.startsWith("private--html/") && ++privateWrites === 2) {
+					throw new Error("simulated R2 failure");
+				}
+				objects.set(key, value);
+			},
+			async delete(key: string) {
+				objects.delete(key);
+			},
+		} as unknown as R2Bucket;
+
+		await expect(
+			moveHtmlBlocksForVisibilityChange(r2, "page", "public", "private"),
+		).rejects.toThrow("simulated R2 failure");
+		expect([...objects.entries()].sort()).toEqual([
+			["local--html/page/a", "A"],
+			["local--html/page/b", "B"],
+		]);
+	});
+
 	test("applies include visibility and page tags through the processing context", async () => {
 		const sqlite = createDatabase();
 		databases.push(sqlite);
@@ -665,6 +706,29 @@ describe("renderWikitext pipeline adapter", () => {
 		);
 
 		expect(result.html.match(/ULID_INCLUDE/g)).toHaveLength(2);
+	});
+
+	test("excludes soft-deleted pages from include and ListPages", async () => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+		sqlite.run(`
+			INSERT INTO pages (id, category, unix_name, title, source, deleted_at) VALUES
+				(1, '_default', 'active', 'ACTIVE_PAGE', 'ACTIVE_SOURCE', NULL),
+				(2, '_default', 'removed', 'REMOVED_PAGE', 'REMOVED_SOURCE', '2026-09-02T00:00:00.000Z');
+		`);
+		const result = await renderWikitext(
+			[
+				"[[include removed]]",
+				'[[module ListPages order="titleAsc"]]',
+				"%%title%%",
+				"[[/module]]",
+			].join("\n"),
+			createEnv(sqlite),
+			{ pageName: "start", category: "_default" },
+		);
+		expect(result.html).toContain("ACTIVE_PAGE");
+		expect(result.html).not.toContain("REMOVED_PAGE");
+		expect(result.html).not.toContain("REMOVED_SOURCE");
 	});
 
 	test("passes urlPath to ListPages @URL query resolution", async () => {

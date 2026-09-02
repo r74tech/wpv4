@@ -58,8 +58,10 @@ function createDatabase(): Database {
 			is_locked INTEGER NOT NULL DEFAULT 0,
 			created_by INTEGER,
 			updated_by INTEGER,
+			deleted_by INTEGER,
 			created_at TEXT,
-			updated_at TEXT
+			updated_at TEXT,
+			deleted_at TEXT
 		);
 		CREATE TABLE page_tags (
 			id INTEGER PRIMARY KEY,
@@ -88,6 +90,18 @@ function createDatabase(): Database {
 			transports TEXT,
 			name TEXT NOT NULL DEFAULT '',
 			created_at TEXT
+		);
+		CREATE TABLE api_keys (
+			id INTEGER PRIMARY KEY,
+			user_id INTEGER NOT NULL,
+			name TEXT NOT NULL,
+			key_hash TEXT NOT NULL UNIQUE,
+			key_hint TEXT NOT NULL,
+			scopes TEXT NOT NULL,
+			expires_at TEXT,
+			revoked_at TEXT,
+			last_used_at TEXT,
+			created_at TEXT NOT NULL
 		);
 	`);
 	return sqlite;
@@ -138,7 +152,22 @@ describe("route-level SSR shell state", () => {
 			INSERT INTO pages (id, category, unix_name, title, source, created_by) VALUES
 				(1, '_default', 'main', 'Main', '', 7),
 				(2, 'private', '01arz3ndektsv4rrffq69g5fav', 'Private', 'secret', 7);
+			INSERT INTO pages (id, category, unix_name, title, source, created_by, deleted_at) VALUES
+				(3, '_default', 'gone', 'Gone', 'removed', 7, '2026-09-02T00:00:00.000Z');
 		`);
+		sqlite
+			.prepare(
+				"INSERT INTO api_keys (id, user_id, name, key_hash, key_hint, scopes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+			)
+			.run(
+				1,
+				7,
+				"Claude",
+				"hashed-only",
+				"wpv4_abcd…wxyz",
+				'["pages:read"]',
+				"2026-09-02T00:00:00.000Z",
+			);
 	});
 
 	afterAll(() => sqlite.close());
@@ -169,6 +198,12 @@ describe("route-level SSR shell state", () => {
 		expect(html).toContain('data-files-domain="https://files.example.com"');
 		expect(html).toContain("<p>Account</p>");
 		expect(html).not.toContain('data-action="source"');
+	});
+
+	test("renders a soft-deleted page as not found", async () => {
+		const response = await app.request("http://localhost/gone", undefined, env);
+		expect(response.status).toBe(404);
+		expect(await response.text()).not.toContain("removed");
 	});
 
 	test("renders signed-out UI without page actions for a 403", async () => {
