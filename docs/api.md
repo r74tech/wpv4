@@ -163,8 +163,7 @@ curl -sS "$WPV4_API_URL/api/v1/pages" \
 
 ## リビジョン番号を使ったページの更新
 
-更新前に`GET /api/v1/pages/:path`から`revision_number`を取得し、その値を`base_revision_number`に指定します。
-別の更新が先に保存されている場合は、競合を示す`409`を返します。
+更新前に`GET /api/v1/pages/:path`から`revision_number`を取得し、その値を`base_revision_number`に指定します。別の更新が先に保存されている場合は、競合を示す`409`を返します。
 
 ```bash
 curl -sS -X PUT "$WPV4_API_URL/api/v1/pages/share:PAGE_ULID" \
