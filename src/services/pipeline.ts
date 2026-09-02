@@ -6,7 +6,7 @@ import type {
 } from "@wdprlib/parser";
 import { renderWikitext as renderProcessedWikitext } from "@wdprlib/render";
 import { drizzle } from "drizzle-orm/d1";
-import { eq, and, ne, inArray, notInArray, desc, asc, sql, type SQL } from "drizzle-orm";
+import { eq, and, ne, inArray, notInArray, desc, asc, sql, isNull, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { pages, pageTags, users } from "@/db/schema";
 import { canViewPage, isUlidCategory, normalizeUlid, visibilityPolicy } from "@/lib/visibility";
@@ -28,7 +28,7 @@ const AVATAR_USER_LOOKUP_LIMIT = 100;
  * owner例外なしで一律除外する（含めると include 仕様と意味が割れる）。
  */
 function visibleByViewer(_viewerId: number | null) {
-	return ne(pages.category, "private");
+	return and(ne(pages.category, "private"), isNull(pages.deletedAt));
 }
 
 /**
@@ -36,7 +36,7 @@ function visibleByViewer(_viewerId: number | null) {
  * share は URL を知っている人だけが見る semi-public、private は作成者専用なので一覧非掲載。
  */
 function listPagesScope() {
-	return and(ne(pages.category, "share"), ne(pages.category, "private"));
+	return and(ne(pages.category, "share"), ne(pages.category, "private"), isNull(pages.deletedAt));
 }
 
 /**
@@ -87,18 +87,47 @@ export async function moveHtmlBlocksForVisibilityChange(
 	page: string,
 	fromVisibility: "public" | "share" | "private",
 	toVisibility: "public" | "share" | "private",
+): Promise<string[]> {
+	const fromPrefix = fromVisibility === "private" ? "private--html" : "local--html";
+	const toPrefix = toVisibility === "private" ? "private--html" : "local--html";
+	if (fromPrefix === toPrefix) return [];
+
+	const moved: string[] = [];
+	let cursor: string | undefined;
+	try {
+		do {
+			const list = await r2.list({ prefix: `${fromPrefix}/${page}/`, cursor });
+			for (const obj of list.objects) {
+				const newKey = obj.key.replace(`${fromPrefix}/`, `${toPrefix}/`);
+				const src = await r2.get(obj.key);
+				if (!src) continue;
+				await r2.put(newKey, src.body, { httpMetadata: src.httpMetadata });
+				await r2.delete(obj.key);
+				moved.push(newKey);
+			}
+			cursor = list.truncated ? list.cursor : undefined;
+		} while (cursor);
+	} catch (error) {
+		await restoreMovedHtmlBlocks(r2, moved, fromVisibility, toVisibility);
+		throw error;
+	}
+	return moved;
+}
+
+export async function restoreMovedHtmlBlocks(
+	r2: R2Bucket,
+	destinationKeys: readonly string[],
+	fromVisibility: "public" | "share" | "private",
+	toVisibility: "public" | "share" | "private",
 ): Promise<void> {
 	const fromPrefix = fromVisibility === "private" ? "private--html" : "local--html";
 	const toPrefix = toVisibility === "private" ? "private--html" : "local--html";
-	if (fromPrefix === toPrefix) return;
-
-	const list = await r2.list({ prefix: `${fromPrefix}/${page}/` });
-	for (const obj of list.objects) {
-		const newKey = obj.key.replace(`${fromPrefix}/`, `${toPrefix}/`);
-		const src = await r2.get(obj.key);
-		if (!src) continue;
-		await r2.put(newKey, src.body, { httpMetadata: src.httpMetadata });
-		await r2.delete(obj.key);
+	for (const destinationKey of destinationKeys) {
+		const source = await r2.get(destinationKey);
+		if (!source) continue;
+		const restoredKey = destinationKey.replace(`${toPrefix}/`, `${fromPrefix}/`);
+		await r2.put(restoredKey, source.body, { httpMetadata: source.httpMetadata });
+		await r2.delete(destinationKey);
 	}
 }
 
@@ -233,7 +262,7 @@ async function fetchListPagesData(
 	}
 
 	// WHERE 句構築
-	const conditions: SQL[] = [];
+	const conditions: SQL[] = [isNull(pages.deletedAt)];
 
 	if (query.range === ".") {
 		// 自分自身。 share/private 除外もここでは外す（自己参照のため）。
@@ -278,7 +307,11 @@ async function fetchListPagesData(
 				.select({ id: pages.createdBy })
 				.from(pages)
 				.where(
-					and(eq(pages.category, ctx.currentCategory), eq(pages.unixName, ctx.currentPageName)),
+					and(
+						eq(pages.category, ctx.currentCategory),
+						eq(pages.unixName, ctx.currentPageName),
+						isNull(pages.deletedAt),
+					),
 				)
 				.limit(1);
 			conditions.push(
@@ -540,7 +573,7 @@ export async function renderWikitext(
 				const result = await db
 					.select({ source: pages.source, category: pages.category })
 					.from(pages)
-					.where(eq(pages.unixName, unixName))
+					.where(and(eq(pages.unixName, unixName), isNull(pages.deletedAt)))
 					.limit(1);
 				if (!result[0] || !visibilityPolicy(result[0].category).canInclude) return null;
 				return result[0].source;
@@ -647,7 +680,7 @@ export async function renderWikitext(
 		const currentPage = await db
 			.select({ category: pages.category })
 			.from(pages)
-			.where(eq(pages.unixName, options.pageName))
+			.where(and(eq(pages.unixName, options.pageName), isNull(pages.deletedAt)))
 			.limit(1);
 		const currentIsPrivate = currentPage[0]
 			? visibilityPolicy(currentPage[0].category).visibility === "private"

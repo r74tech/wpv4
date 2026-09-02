@@ -1,12 +1,14 @@
 import { Hono } from "hono";
 import { drizzle } from "drizzle-orm/d1";
-import { eq, desc, like, sql, and as drizzleAnd, or as drizzleOr } from "drizzle-orm";
+import { eq, desc, like, sql, isNull, and as drizzleAnd, or as drizzleOr } from "drizzle-orm";
 import { users, revisions, pages, passkeys } from "@/db/schema";
 import { requireAuth } from "@/middleware/session";
 import { formatPagePath } from "@/services/pipeline";
 import { authRenderer } from "@/auth-renderer";
 import { SettingsPage } from "@/pages/auth/SettingsPage";
+import { ApiKeysPage } from "@/pages/auth/ApiKeysPage";
 import { ActivitiesPage } from "@/pages/auth/ActivitiesPage";
+import { listApiKeys } from "@/services/api-keys";
 import type { AppEnv } from "@/types/env";
 
 const user = new Hono<AppEnv>();
@@ -28,6 +30,7 @@ user.get("/settings", async (c) => {
 	const u = userRow[0];
 	if (!u) return c.notFound();
 
+	c.header("Cache-Control", "no-store");
 	return c.render(
 		<SettingsPage
 			user={{
@@ -40,6 +43,13 @@ user.get("/settings", async (c) => {
 			passkeys={userPasskeys}
 		/>,
 	);
+});
+
+user.get("/api-keys", async (c) => {
+	const currentUser = c.get("user")!;
+	const apiKeys = await listApiKeys(drizzle(c.env.DB), currentUser.id);
+	c.header("Cache-Control", "no-store");
+	return c.render(<ApiKeysPage apiKeys={apiKeys} />);
 });
 
 user.get("/activities", async (c) => {
@@ -57,7 +67,11 @@ user.get("/activities", async (c) => {
 		sql`${pages.category} != 'private'`,
 		eq(pages.createdBy, currentUser.id),
 	);
-	const conditions = [eq(revisions.createdBy, currentUser.id), privacyClause];
+	const conditions = [
+		eq(revisions.createdBy, currentUser.id),
+		privacyClause,
+		isNull(pages.deletedAt),
+	];
 	if (search) {
 		conditions.push(like(pages.unixName, `%${search}%`));
 	}

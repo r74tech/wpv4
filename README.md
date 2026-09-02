@@ -100,6 +100,8 @@ Cloudflare **Workers Builds**（GitHub接続）でpushにより自動ビルド�
    - **Deploy command**: `bunx wrangler deploy --env production`
    - **Preview deploy command**: `bunx wrangler deploy --env staging`（`develop` のみ）
 
+   files workerは公開html-blockの配信時に同じD1のpage状態を確認する。`files-worker/wrangler.jsonc` のstaging/production `DB` bindingはmain workerと同じdatabase IDを指定する。
+
 6. **本番カスタムドメイン**を Cloudflare Dashboard → Workers & Pages → `wpv4-prd` → Settings → Domains & Routes で `wp.r74.tech` をバインド
 
 ### 通常のデプロイ
@@ -137,7 +139,7 @@ cd files-worker && wrangler deploy --env staging  # or production
 wpv4/
 ├── src/                        # main worker (SSR + API)
 │   ├── index.tsx
-│   ├── routes/                 # /api/* + /auth/* + /user/*
+│   ├── routes/                 # /api/web/* + /api/v1/* + /auth/* + /user/*
 │   ├── services/               # pipeline / nav / oauth / visibility-check
 │   ├── lib/visibility.ts       # share/private/system 判定
 │   ├── components/             # WikidotShell

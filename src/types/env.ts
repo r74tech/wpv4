@@ -18,6 +18,12 @@ export type Variables = {
 		name: string;
 		unixName: string;
 	} | null;
+	apiKey: {
+		id: number;
+		name: string;
+		scopes: import("@/lib/api-key").ApiKeyScope[];
+		expiresAt: string | null;
+	} | null;
 };
 
 export type AppEnv = {

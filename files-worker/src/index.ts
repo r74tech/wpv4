@@ -25,11 +25,21 @@ import {
 type Env = {
 	FILES: R2Bucket;
 	AVATARS: R2Bucket;
+	DB?: D1Database;
 	ALLOWED_ORIGIN?: string;
 	HTML_BLOCK_CSS_URL?: string;
 	// private html-block の ukey 検証用 HMAC 鍵（main worker と共有）
 	FILES_URL_SECRET?: string;
 };
+
+async function canServePublicHtmlBlock(db: D1Database | undefined, page: string): Promise<boolean> {
+	if (!db) throw new Error("Missing DB binding");
+	const row = await db
+		.prepare("SELECT category FROM pages WHERE unix_name = ? AND deleted_at IS NULL LIMIT 1")
+		.bind(page)
+		.first<{ category: string }>();
+	return row !== null && row.category !== "private";
+}
 
 function bytesToHex(bytes: Uint8Array): string {
 	let hex = "";
@@ -219,10 +229,25 @@ export default {
 		const securityHeaders: Record<string, string> = { "X-Content-Type-Options": "nosniff" };
 
 		if (htmlMatch) {
-			// public / share / その他 html-block: 誰でも CDN 経由で配信
+			// R2の移動・削除に失敗しても、現在private/deletedのpageは公開経路から配信しない。
 			const [, page, hash] = htmlMatch;
+			try {
+				if (!(await canServePublicHtmlBlock(env.DB, page))) {
+					return new Response("Not found", {
+						status: 404,
+						headers: { ...corsHeaders, "Cache-Control": "no-store" },
+					});
+				}
+			} catch (error) {
+				console.error("Failed to verify public HTML block access", error);
+				return new Response("Service unavailable", {
+					status: 503,
+					headers: { ...corsHeaders, "Cache-Control": "no-store" },
+				});
+			}
 			key = `local--html/${page}/${hash}`;
 			contentType = "text/html; charset=utf-8";
+			cacheControl = "no-store";
 		} else if (privateHtmlMatch) {
 			// private html-block: ukey + exp の HMAC 検証必須、URL から ukey を削っても
 			// public 経路に fallback しない（R2 prefix も別なので存在しない）

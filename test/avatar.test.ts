@@ -173,9 +173,86 @@ describe("files worker avatar route", () => {
 	});
 });
 
-function createFilesEnv(avatars: R2Bucket): { FILES: R2Bucket; AVATARS: R2Bucket } {
+describe("files worker public HTML route", () => {
+	function pageDb(category: string | null, failure = false): D1Database {
+		return {
+			prepare() {
+				return {
+					bind() {
+						return {
+							async first() {
+								if (failure) throw new Error("simulated D1 failure");
+								return category === null ? null : { category };
+							},
+						};
+					},
+				};
+			},
+		} as unknown as D1Database;
+	}
+
+	function htmlObject(key: string): R2ObjectBody {
+		return {
+			key,
+			size: 12,
+			httpEtag: '"html-etag"',
+			httpMetadata: { contentType: "text/html; charset=utf-8" },
+			body: new Response("<p>block</p>").body!,
+		} as R2ObjectBody;
+	}
+
+	test("serves only an active non-private page without cache reuse", async () => {
+		const gets: string[] = [];
+		const files = {
+			async get(key: string) {
+				gets.push(key);
+				return htmlObject(key);
+			},
+		} as R2Bucket;
+		const response = await filesWorker.fetch(
+			new Request("https://files.example.com/local--html/page/hash", { method: "HEAD" }),
+			createFilesEnv({} as R2Bucket, files, pageDb("share")),
+		);
+		expect(response.status).toBe(200);
+		expect(response.headers.get("Cache-Control")).toBe("no-store");
+		expect(gets).toEqual(["local--html/page/hash"]);
+	});
+
+	test("fails closed before R2 for private, deleted, missing, or unavailable page state", async () => {
+		for (const [db, status] of [
+			[pageDb("private"), 404],
+			[pageDb(null), 404],
+			[pageDb(null, true), 503],
+		] as const) {
+			let gets = 0;
+			const response = await filesWorker.fetch(
+				new Request("https://files.example.com/local--html/page/hash", { method: "HEAD" }),
+				createFilesEnv(
+					{} as R2Bucket,
+					{
+						async get() {
+							gets += 1;
+							return null;
+						},
+					} as R2Bucket,
+					db,
+				),
+			);
+			expect(response.status).toBe(status);
+			expect(response.headers.get("Cache-Control")).toBe("no-store");
+			expect(gets).toBe(0);
+		}
+	});
+});
+
+function createFilesEnv(
+	avatars: R2Bucket,
+	files: R2Bucket = {} as R2Bucket,
+	db?: D1Database,
+): { FILES: R2Bucket; AVATARS: R2Bucket; DB?: D1Database } {
 	return {
-		FILES: {} as R2Bucket,
+		FILES: files,
 		AVATARS: avatars,
+		DB: db,
 	};
 }

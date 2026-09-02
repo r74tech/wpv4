@@ -1,6 +1,6 @@
 import { extractIncludeReferences } from "@wdprlib/parser";
 import { drizzle } from "drizzle-orm/d1";
-import { ne, and, sql } from "drizzle-orm";
+import { ne, and, sql, isNull } from "drizzle-orm";
 import { pages } from "@/db/schema";
 import { canViewPage, normalizeUlid } from "@/lib/visibility";
 import { resolveLocalIncludeUnixName } from "@/lib/include-reference";
@@ -36,7 +36,11 @@ export async function findReferencingPages(
 		})
 		.from(pages)
 		.where(
-			and(sql`lower(${pages.source}) LIKE '%' || ${targetUnixName} || '%'`, ne(pages.id, selfId)),
+			and(
+				sql`lower(${pages.source}) LIKE '%' || ${targetUnixName} || '%'`,
+				ne(pages.id, selfId),
+				isNull(pages.deletedAt),
+			),
 		);
 
 	const visible: ReferencingResult["visible"] = [];

@@ -46,10 +46,15 @@ export const pages = sqliteTable(
 		isLocked: integer("is_locked").notNull().default(0),
 		createdBy: integer("created_by").references(() => users.id),
 		updatedBy: integer("updated_by").references(() => users.id),
+		deletedBy: integer("deleted_by").references(() => users.id),
 		createdAt: text("created_at").default(now),
 		updatedAt: text("updated_at").default(now),
+		deletedAt: text("deleted_at"),
 	},
-	(table) => [index("idx_pages_category").on(table.category)],
+	(table) => [
+		index("idx_pages_category").on(table.category),
+		index("idx_pages_deleted_at").on(table.deletedAt),
+	],
 );
 
 export const revisions = sqliteTable(
@@ -112,6 +117,48 @@ export const passkeys = sqliteTable(
 	(table) => [
 		index("idx_passkeys_user_id").on(table.userId),
 		uniqueIndex("idx_passkeys_credential_id").on(table.credentialId),
+	],
+);
+
+export const apiKeys = sqliteTable(
+	"api_keys",
+	{
+		id: integer("id").primaryKey({ autoIncrement: true }),
+		userId: integer("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		name: text("name").notNull(),
+		keyHash: text("key_hash").unique().notNull(),
+		keyHint: text("key_hint").notNull(),
+		scopes: text("scopes").notNull(),
+		expiresAt: text("expires_at"),
+		revokedAt: text("revoked_at"),
+		lastUsedAt: text("last_used_at"),
+		createdAt: text("created_at").notNull().default(now),
+	},
+	(table) => [index("idx_api_keys_user_id").on(table.userId)],
+);
+
+export const apiAuditEvents = sqliteTable(
+	"api_audit_events",
+	{
+		id: integer("id").primaryKey({ autoIncrement: true }),
+		apiKeyId: integer("api_key_id").references(() => apiKeys.id, { onDelete: "set null" }),
+		userId: integer("user_id")
+			.notNull()
+			.references(() => users.id),
+		action: text("action", {
+			enum: ["page.create", "page.update", "page.delete", "page.visibility"],
+		}).notNull(),
+		pageId: integer("page_id").references(() => pages.id),
+		pagePath: text("page_path").notNull(),
+		statusCode: integer("status_code").notNull(),
+		responseJson: text("response_json").notNull(),
+		createdAt: text("created_at").notNull().default(now),
+	},
+	(table) => [
+		index("idx_api_audit_events_key_id").on(table.apiKeyId),
+		index("idx_api_audit_events_created_at").on(table.createdAt),
 	],
 );
 

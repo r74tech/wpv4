@@ -1,5 +1,5 @@
 import { drizzle } from "drizzle-orm/d1";
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { pages } from "@/db/schema";
 import { renderWikitext } from "@/services/pipeline";
 import type { Bindings } from "@/types/env";
@@ -14,7 +14,7 @@ export async function renderNav(
 	const page = await db
 		.select()
 		.from(pages)
-		.where(and(eq(pages.category, "nav"), eq(pages.unixName, name)))
+		.where(and(eq(pages.category, "nav"), eq(pages.unixName, name), isNull(pages.deletedAt)))
 		.limit(1);
 
 	if (!page[0]) return null;

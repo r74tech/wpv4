@@ -46,8 +46,10 @@ function createDatabase(): Database {
 			is_locked INTEGER NOT NULL DEFAULT 0,
 			created_by INTEGER,
 			updated_by INTEGER,
+			deleted_by INTEGER,
 			created_at TEXT DEFAULT '2026-07-24T00:00:00.000Z',
-			updated_at TEXT DEFAULT '2026-07-24T00:00:00.000Z'
+			updated_at TEXT DEFAULT '2026-07-24T00:00:00.000Z',
+			deleted_at TEXT
 		);
 		CREATE TABLE page_tags (
 			id INTEGER PRIMARY KEY,
@@ -112,7 +114,7 @@ describe("preview API page context", () => {
 		`);
 		const app = createTestApi({ id: 7, wikidotId: 70, name: "Owner", unixName: "owner" });
 		const response = await app.request(
-			"http://localhost/api/preview",
+			"http://localhost/api/web/preview",
 			{
 				method: "POST",
 				headers: { "Content-Type": "application/json", Origin: "http://localhost" },
@@ -160,7 +162,7 @@ describe("preview API page context", () => {
 		`);
 		const app = createTestApi({ id: 7, wikidotId: 70, name: "Owner", unixName: "owner" });
 		const response = await app.request(
-			"http://localhost/api/page-revision/guide/r/0",
+			"http://localhost/api/web/page-revision/guide/r/0",
 			undefined,
 			createEnv(sqlite),
 		);
@@ -176,7 +178,7 @@ describe("preview API page context", () => {
 		expect(result.created_by_wikidot_id).toBe(70);
 
 		const historyResponse = await app.request(
-			"http://localhost/api/page-history/guide",
+			"http://localhost/api/web/page-history/guide",
 			undefined,
 			createEnv(sqlite),
 		);

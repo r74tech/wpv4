@@ -20,6 +20,10 @@ async function hashToken(token: string): Promise<string> {
  */
 export const resolveSession = createMiddleware<AppEnv>(async (c, next) => {
 	c.set("user", null);
+	c.set("apiKey", null);
+	if (c.req.path === "/api/v1" || c.req.path.startsWith("/api/v1/")) {
+		return next();
+	}
 
 	const token = getCookie(c, sessionCookieName(c.req.url));
 	if (!token) {

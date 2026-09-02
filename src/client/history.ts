@@ -80,7 +80,7 @@ function renderHistoryUser(
 }
 
 async function fetchRevision(path: string, num: number): Promise<RevisionResponse | null> {
-	const res = await fetch(`/api/page-revision/${path}/r/${num}`);
+	const res = await fetch(`/api/web/page-revision/${path}/r/${num}`);
 	if (!res.ok) return null;
 	return (await res.json()) as RevisionResponse;
 }
@@ -106,7 +106,7 @@ export async function showRevisionView(path: string, num: number) {
 		return;
 	}
 
-	const previewRes = await fetch("/api/preview", {
+	const previewRes = await fetch("/api/web/preview", {
 		method: "POST",
 		headers: { "Content-Type": "application/json", Origin: window.location.origin },
 		body: JSON.stringify(
@@ -326,7 +326,7 @@ export async function showHistory(path: string) {
 	const actionArea = $("#action-area");
 	if (!actionArea) return;
 
-	const res = await fetch(`/api/page-history/${path}`);
+	const res = await fetch(`/api/web/page-history/${path}`);
 	if (!res.ok) {
 		setHtml(actionArea, "<p>Failed to load history.</p>");
 		return;
@@ -614,7 +614,7 @@ export async function showRevisionCompare(path: string) {
 
 export async function revertRevision(path: string, rev: number) {
 	if (!window.confirm(`Revert this page to revision ${rev}?`)) return;
-	const res = await fetch(`/api/page-revert/${path}/r/${rev}`, {
+	const res = await fetch(`/api/web/page-revert/${path}/r/${rev}`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json", Origin: window.location.origin },
 		body: JSON.stringify({}),
