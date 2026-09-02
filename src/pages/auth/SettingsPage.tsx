@@ -78,7 +78,7 @@ export const SettingsPage: FC<Props> = ({ user, passkeys }) => (
 		<div class="card settings-link-card">
 			<div>
 				<strong>API keys</strong>
-				<p>Create scoped keys for Claude and other external tools.</p>
+				<p>Create scoped keys for external tools.</p>
 			</div>
 			<a href="/user/api-keys" class="btn">
 				Manage API keys
