@@ -82,4 +82,35 @@ describe("database migrations", () => {
 			sqlite.close();
 		}
 	});
+
+	test("adds migration 0006 without losing API keys or audit references", async () => {
+		const sqlite = new Database(":memory:");
+		try {
+			await applyMigrations(sqlite, 5);
+			sqlite.run("INSERT INTO users (id, wikidot_id, name, unix_name) VALUES (1, 1, 'A', 'a')");
+			sqlite.run(
+				"INSERT INTO api_keys (id, user_id, name, key_hash, key_hint, scopes) VALUES (1, 1, 'key', 'hash', 'hint', '[\"pages:write\"]')",
+			);
+			sqlite.run(
+				"INSERT INTO api_audit_events (api_key_id, user_id, action, page_path, status_code, response_json) VALUES (1, 1, 'page.create', 'share:page', 201, '{}')",
+			);
+			const migration = Bun.file(
+				new URL("../db/migrations/0006_soft_delete_api_keys.sql", import.meta.url),
+			);
+			sqlite.run(await migration.text());
+
+			const columns = sqlite.query("PRAGMA table_info(api_keys)").all() as { name: string }[];
+			expect(columns.map(({ name }) => name)).toContain("deleted_at");
+			expect(sqlite.query("SELECT id, deleted_at FROM api_keys").get()).toEqual({
+				id: 1,
+				deleted_at: null,
+			});
+			expect(sqlite.query("SELECT api_key_id FROM api_audit_events").get()).toEqual({
+				api_key_id: 1,
+			});
+			expect(sqlite.query("PRAGMA foreign_key_check").all()).toEqual([]);
+		} finally {
+			sqlite.close();
+		}
+	});
 });

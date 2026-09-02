@@ -56,7 +56,7 @@ describe("API key domain", () => {
 });
 
 describe("API key service", () => {
-	test("creates, lists, authenticates, updates, revokes, and deletes a key", async () => {
+	test("creates, lists, authenticates, updates, and revokes a key", async () => {
 		const sqlite = new Database(":memory:");
 		try {
 			await applyMigrations(sqlite);
@@ -104,7 +104,56 @@ describe("API key service", () => {
 			expect(await revokeApiKey(db, 1, created.id, now)).toBe(1);
 			expect(await findActiveApiKey(db, created.plaintext, now)).toBeNull();
 			expect(await revokeApiKey(db, 1, created.id, now)).toBe(0);
-			expect(await deleteApiKey(db, 1, created.id)).toBe(1);
+		} finally {
+			sqlite.close();
+		}
+	});
+
+	test("soft-deletes an active key without losing its audit relation", async () => {
+		const sqlite = new Database(":memory:");
+		try {
+			await applyMigrations(sqlite);
+			sqlite.run(
+				"INSERT INTO users (id, wikidot_id, name, unix_name) VALUES (1, 10, 'Owner', 'owner')",
+			);
+			const db = drizzle(createD1(sqlite));
+			const createdAt = new Date("2026-09-02T10:00:00.000Z");
+			const deletedAt = new Date("2026-09-02T11:00:00.000Z");
+			const created = await createApiKey(db, {
+				userId: 1,
+				name: "Active",
+				scopes: ["pages:read"],
+				expiresInDays: null,
+				now: createdAt,
+			});
+			expect(created.ok).toBe(true);
+			if (!created.ok) throw new Error("creation failed");
+			sqlite.run(
+				`INSERT INTO api_audit_events
+					(api_key_id, user_id, action, page_path, status_code, response_json)
+				 VALUES (?, 1, 'page.create', 'share:test', 201, '{}')`,
+				[created.id],
+			);
+			expect(await deleteApiKey(db, 1, created.id, deletedAt)).toBe(1);
+			expect(
+				sqlite.query("SELECT revoked_at, deleted_at FROM api_keys WHERE id = ?").get(created.id),
+			).toEqual({ revoked_at: deletedAt.toISOString(), deleted_at: deletedAt.toISOString() });
+			expect(
+				sqlite
+					.query("SELECT api_key_id FROM api_audit_events WHERE api_key_id = ?")
+					.get(created.id),
+			).toEqual({ api_key_id: created.id });
+			expect(await findActiveApiKey(db, created.plaintext, deletedAt)).toBeNull();
+			expect(await updateApiKey(db, 1, created.id, { name: "Changed" })).toBe(0);
+			expect(await revokeApiKey(db, 1, created.id, deletedAt)).toBe(0);
+			expect(await deleteApiKey(db, 1, created.id, deletedAt)).toBe(0);
+			await touchApiKeyLastUsed(db, created.id, deletedAt);
+			expect(
+				sqlite.query("SELECT last_used_at FROM api_keys WHERE id = ?").get(created.id),
+			).toEqual({
+				last_used_at: null,
+			});
+			expect(await listApiKeys(db, 1, deletedAt)).toEqual([]);
 		} finally {
 			sqlite.close();
 		}
@@ -119,6 +168,7 @@ describe("API key service", () => {
 			);
 			const db = drizzle(createD1(sqlite));
 			const now = new Date("2026-09-02T10:00:00.000Z");
+			let firstId: number | null = null;
 			for (let index = 0; index < 20; index += 1) {
 				const result = await createApiKey(db, {
 					userId: 1,
@@ -128,6 +178,7 @@ describe("API key service", () => {
 					now,
 				});
 				expect(result.ok).toBe(true);
+				if (index === 0 && result.ok) firstId = result.id;
 			}
 			const overflow = await createApiKey(db, {
 				userId: 1,
@@ -137,7 +188,17 @@ describe("API key service", () => {
 				now,
 			});
 			expect(overflow).toEqual({ ok: false, code: "limit_exceeded" });
-			expect(sqlite.query("SELECT count(*) AS count FROM api_keys").get()).toEqual({ count: 20 });
+			if (firstId === null) throw new Error("first key was not created");
+			expect(await deleteApiKey(db, 1, firstId, now)).toBe(1);
+			const replacement = await createApiKey(db, {
+				userId: 1,
+				name: "Replacement",
+				scopes: ["pages:read"],
+				expiresInDays: null,
+				now,
+			});
+			expect(replacement.ok).toBe(true);
+			expect(sqlite.query("SELECT count(*) AS count FROM api_keys").get()).toEqual({ count: 21 });
 		} finally {
 			sqlite.close();
 		}

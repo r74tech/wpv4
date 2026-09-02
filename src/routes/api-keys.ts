@@ -113,7 +113,7 @@ apiKeys.delete("/:id", async (c) => {
 	const id = parseId(c.req.param("id"));
 	if (id === null) return c.json({ error: "Invalid API key id" }, 400);
 	const user = c.get("user")!;
-	const changed = await deleteApiKey(drizzle(c.env.DB), user.id, id);
+	const changed = await deleteApiKey(drizzle(c.env.DB), user.id, id, new Date());
 	if (changed === 0) return c.json({ error: "API key not found" }, 404);
 	return c.json({ ok: true });
 });

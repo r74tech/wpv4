@@ -153,7 +153,27 @@ describe("API key management API", () => {
 			).toBe(200);
 			expect((await requestJson(app, env, `/${created.id}/revoke`, "POST", {})).status).toBe(200);
 			expect((await requestJson(app, env, `/${created.id}/revoke`, "POST", {})).status).toBe(404);
-			expect((await requestJson(app, env, `/${created.id}`, "DELETE")).status).toBe(200);
+			const activeResponse = await requestJson(app, env, "/", "POST", {
+				name: "Active",
+				scopes: ["pages:read"],
+				expires_in_days: null,
+			});
+			const active = (await activeResponse.json()) as { id: number };
+			expect((await requestJson(app, env, `/${active.id}`, "DELETE")).status).toBe(200);
+			const deleted = sqlite
+				.query("SELECT revoked_at, deleted_at FROM api_keys WHERE id = ?")
+				.get(active.id) as { revoked_at: string | null; deleted_at: string | null };
+			expect(deleted.revoked_at).not.toBeNull();
+			expect(deleted.deleted_at).not.toBeNull();
+			expect((await requestJson(app, env, `/${active.id}`, "DELETE")).status).toBe(404);
+			const listResponse = await app.request(
+				"http://localhost/api/web/api-keys",
+				{ headers: { "X-Test-User": "1" } },
+				env,
+			);
+			expect(await listResponse.json()).toEqual({
+				keys: [expect.objectContaining({ id: created.id, status: "revoked" })],
+			});
 		} finally {
 			sqlite.close();
 		}

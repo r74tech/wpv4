@@ -100,6 +100,7 @@ function createDatabase(): Database {
 			scopes TEXT NOT NULL,
 			expires_at TEXT,
 			revoked_at TEXT,
+			deleted_at TEXT,
 			last_used_at TEXT,
 			created_at TEXT NOT NULL
 		);

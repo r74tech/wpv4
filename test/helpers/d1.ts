@@ -43,7 +43,7 @@ export function createD1(sqlite: Database): D1Database {
 	} as unknown as D1Database;
 }
 
-export async function applyMigrations(sqlite: Database, through = 5): Promise<void> {
+export async function applyMigrations(sqlite: Database, through = 6): Promise<void> {
 	for (let number = 1; number <= through; number += 1) {
 		const names = [
 			"0001_initial.sql",
@@ -51,6 +51,7 @@ export async function applyMigrations(sqlite: Database, through = 5): Promise<vo
 			"0003_add_avatar_unix_name.sql",
 			"0004_api_keys.sql",
 			"0005_soft_delete_and_api_audit.sql",
+			"0006_soft_delete_api_keys.sql",
 		];
 		const file = Bun.file(new URL(`../../db/migrations/${names[number - 1]}`, import.meta.url));
 		sqlite.run(await file.text());

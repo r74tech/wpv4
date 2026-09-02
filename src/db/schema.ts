@@ -133,6 +133,7 @@ export const apiKeys = sqliteTable(
 		scopes: text("scopes").notNull(),
 		expiresAt: text("expires_at"),
 		revokedAt: text("revoked_at"),
+		deletedAt: text("deleted_at"),
 		lastUsedAt: text("last_used_at"),
 		createdAt: text("created_at").notNull().default(now),
 	},

@@ -59,6 +59,7 @@ export async function createApiKey(
 		WHERE (
 			SELECT COUNT(*) FROM api_keys
 			WHERE user_id = ${input.userId}
+				AND deleted_at IS NULL
 				AND revoked_at IS NULL
 				AND (expires_at IS NULL OR expires_at > ${now})
 		) < ${MAX_ACTIVE_API_KEYS}
@@ -85,7 +86,7 @@ export async function listApiKeys(
 			revokedAt: apiKeys.revokedAt,
 		})
 		.from(apiKeys)
-		.where(eq(apiKeys.userId, userId))
+		.where(and(eq(apiKeys.userId, userId), isNull(apiKeys.deletedAt)))
 		.orderBy(desc(apiKeys.createdAt), desc(apiKeys.id));
 	return rows.map((row) => ({
 		...row,
@@ -106,7 +107,7 @@ export async function updateApiKey(
 	const rows = await db
 		.update(apiKeys)
 		.set(values)
-		.where(and(eq(apiKeys.id, id), eq(apiKeys.userId, userId)))
+		.where(and(eq(apiKeys.id, id), eq(apiKeys.userId, userId), isNull(apiKeys.deletedAt)))
 		.returning({ id: apiKeys.id });
 	return rows.length;
 }
@@ -115,15 +116,27 @@ export async function revokeApiKey(db: Db, userId: number, id: number, now: Date
 	const rows = await db
 		.update(apiKeys)
 		.set({ revokedAt: now.toISOString() })
-		.where(and(eq(apiKeys.id, id), eq(apiKeys.userId, userId), isNull(apiKeys.revokedAt)))
+		.where(
+			and(
+				eq(apiKeys.id, id),
+				eq(apiKeys.userId, userId),
+				isNull(apiKeys.revokedAt),
+				isNull(apiKeys.deletedAt),
+			),
+		)
 		.returning({ id: apiKeys.id });
 	return rows.length;
 }
 
-export async function deleteApiKey(db: Db, userId: number, id: number): Promise<number> {
+export async function deleteApiKey(db: Db, userId: number, id: number, now: Date): Promise<number> {
+	const deletedAt = now.toISOString();
 	const rows = await db
-		.delete(apiKeys)
-		.where(and(eq(apiKeys.id, id), eq(apiKeys.userId, userId)))
+		.update(apiKeys)
+		.set({
+			deletedAt,
+			revokedAt: sql`COALESCE(${apiKeys.revokedAt}, ${deletedAt})`,
+		})
+		.where(and(eq(apiKeys.id, id), eq(apiKeys.userId, userId), isNull(apiKeys.deletedAt)))
 		.returning({ id: apiKeys.id });
 	return rows.length;
 }
@@ -147,6 +160,7 @@ export async function findActiveApiKey(db: Db, plaintext: string, now: Date) {
 			and(
 				eq(apiKeys.keyHash, keyHash),
 				isNull(apiKeys.revokedAt),
+				isNull(apiKeys.deletedAt),
 				or(isNull(apiKeys.expiresAt), sql`${apiKeys.expiresAt} > ${now.toISOString()}`),
 			),
 		)
@@ -175,6 +189,7 @@ export async function touchApiKeyLastUsed(db: Db, id: number, now: Date): Promis
 		.where(
 			and(
 				eq(apiKeys.id, id),
+				isNull(apiKeys.deletedAt),
 				or(isNull(apiKeys.lastUsedAt), sql`${apiKeys.lastUsedAt} < ${threshold}`),
 			),
 		);
