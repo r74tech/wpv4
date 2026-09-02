@@ -298,6 +298,7 @@ describe("route-level SSR shell state", () => {
 		expect(html).toContain('<span class="auth-nav-group">');
 		expect(html).toContain('<span class="auth-account-group">');
 		expect(html).toContain('<a href="/user/settings">Settings</a>');
+		expect(html).toContain('<a href="/user/api-keys">API keys</a>');
 		expect(html).toContain(
 			'<a href="javascript:;" id="btn-logout" class="auth-signout">Sign out</a>',
 		);
@@ -306,6 +307,32 @@ describe("route-level SSR shell state", () => {
 		expect(html).toContain('datetime="2026-01-01T00:00:00.000Z"');
 		expect(html).toContain("data-relative-time");
 		expect(html).toContain("data-relative-label=");
+		expect(response.headers.get("Cache-Control")).toBe("no-store");
+		expect(html).toContain("Developer access");
+		expect(html).toContain('href="/user/api-keys"');
+		expect(html).not.toContain("wpv4_abcd…wxyz");
+		expect(html).not.toContain('data-action="edit-api-key"');
+	});
+
+	test("renders API keys on a separate page with closed create and edit dialogs", async () => {
+		const response = await app.request(
+			"http://localhost/user/api-keys",
+			{ headers: authenticatedHeaders },
+			env,
+		);
+		const html = await response.text();
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("Cache-Control")).toBe("no-store");
+		expect(html).toContain("API keys");
+		expect(html).toContain("wpv4_abcd…wxyz");
+		expect(html).toContain('data-action="create-api-key"');
+		expect(html).toContain('data-action="edit-api-key"');
+		expect(html).toContain('id="api-key-create-dialog"');
+		expect(html).toContain('id="api-key-edit-1"');
+		expect(html).not.toMatch(/<dialog[^>]*\sopen(?:[\s=>])/);
+		expect(html).not.toContain("hashed-only");
+		expect(html).not.toMatch(/wpv4_[A-Za-z0-9_-]{43}/);
 	});
 
 	test("deletes the host-prefixed session cookie over HTTPS", async () => {

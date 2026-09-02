@@ -73,5 +73,16 @@ export const SettingsPage: FC<Props> = ({ user, passkeys }) => (
 				Register new Passkey
 			</button>
 		</div>
+
+		<h2>Developer access</h2>
+		<div class="card settings-link-card">
+			<div>
+				<strong>API keys</strong>
+				<p>Create scoped keys for Claude and other external tools.</p>
+			</div>
+			<a href="/user/api-keys" class="btn">
+				Manage API keys
+			</a>
+		</div>
 	</>
 );

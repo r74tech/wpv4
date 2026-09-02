@@ -21,6 +21,7 @@ export function renderLoginStatus(user: ShellUser | null, filesDomain = ""): str
 		` | <a id="account-topbutton" href="javascript:;">▼</a>` +
 		`<div id="account-options"><ul>` +
 		`<li><a href="/user/settings">Settings</a></li>` +
+		`<li><a href="/user/api-keys">API keys</a></li>` +
 		`<li><a href="/user/activities">Activities</a></li>` +
 		`<li><a href="javascript:;" id="btn-logout">Sign out</a></li>` +
 		`</ul></div>`
@@ -85,6 +86,7 @@ export function renderAuthUserNav(user: ShellUser | null): string {
 	return (
 		`<span class="auth-nav-group">` +
 		`<a href="/user/settings">Settings</a>` +
+		`<a href="/user/api-keys">API keys</a>` +
 		`<a href="/user/activities">Activities</a>` +
 		`<a href="/">Wiki</a>` +
 		`</span>` +
