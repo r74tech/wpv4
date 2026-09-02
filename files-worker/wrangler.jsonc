@@ -10,6 +10,14 @@
 			"invocation_logs": true
 		}
 	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "wpv4-db",
+			"database_id": "5cd1ee6c-1e38-4147-90bf-fe689bddb638",
+			"migrations_dir": "../db/migrations"
+		}
+	],
 	"r2_buckets": [
 		{
 			"binding": "FILES",
@@ -32,6 +40,14 @@
 		// staging: develop ブランチから自動デプロイ
 		"staging": {
 			"name": "wpfiles-staging",
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "wpv4-db-staging",
+					"database_id": "5cd1ee6c-1e38-4147-90bf-fe689bddb638",
+					"migrations_dir": "../db/migrations"
+				}
+			],
 			"r2_buckets": [
 				{
 					"binding": "FILES",
@@ -52,6 +68,14 @@
 		"production": {
 			"name": "wpfiles",
 			"workers_dev": true,
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "wpv4-db-prd",
+					"database_id": "ba04672f-a87f-4f0b-9ce9-f75db3d20732",
+					"migrations_dir": "../db/migrations"
+				}
+			],
 			"r2_buckets": [
 				{
 					"binding": "FILES",
