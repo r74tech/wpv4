@@ -33,10 +33,9 @@ describe("API key domain", () => {
 	});
 
 	test("parses only known unique scopes", () => {
-		expect(parseScopes('["pages:read","unknown","pages:read","pages:write"]')).toEqual([
-			"pages:read",
-			"pages:write",
-		]);
+		expect(parseScopes('["pages:read","render:use","unknown","render:use","pages:write"]')).toEqual(
+			["pages:read", "render:use", "pages:write"],
+		);
 		expect(parseScopes("invalid")).toEqual([]);
 		expect(hasScope(API_KEY_SCOPES, "pages:delete")).toBe(true);
 	});

@@ -4,6 +4,7 @@ export const API_KEY_SCOPES = [
 	"pages:write",
 	"pages:delete",
 	"pages:visibility",
+	"render:use",
 ] as const;
 
 export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
@@ -14,6 +15,7 @@ export const API_KEY_SCOPE_DESCRIPTIONS: Record<ApiKeyScope, string> = {
 	"pages:write": "Create and update pages",
 	"pages:delete": "Delete pages you manage",
 	"pages:visibility": "Change page visibility",
+	"render:use": "Use the external WDPR render API",
 };
 
 export const API_KEY_EXPIRY_DAYS = [30, 90, 365] as const;

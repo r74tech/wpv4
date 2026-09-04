@@ -26,6 +26,7 @@ APIキーの平文を確認できるのは、作成直後の一度だけです�
 | `pages:write`      | ページを作成し、編集できるページを更新する                                   |
 | `pages:delete`     | 管理できるページを削除する                                                   |
 | `pages:visibility` | ページの公開範囲を`public`、`share`、`private`の間で変更する                 |
+| `render:use`       | 外部WDPR Render APIを使用する                                                |
 
 スコープは、APIキーに許可された操作だけを制御します。
 対象ページに対する権限は、APIキーを所有する利用者を基準に別途判定します。
