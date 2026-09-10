@@ -121,15 +121,7 @@ export async function showRevisionView(path: string, num: number) {
 		? ((await previewRes.json()) as { html: string; styles: string[] })
 		: { html: `<pre>${escapeHtml(data.source)}</pre>`, styles: [] };
 
-	const dateStr = data.created_at
-		? new Date(data.created_at + "Z").toLocaleString("ja-JP", {
-				year: "numeric",
-				month: "short",
-				day: "numeric",
-				hour: "2-digit",
-				minute: "2-digit",
-			})
-		: "";
+	const dateStr = formatRevisionDate(data.created_at, true);
 	const userDisplay = renderHistoryUser(
 		data.created_by_name,
 		data.created_by_unix_name,
@@ -174,9 +166,14 @@ export async function showRevisionSource(path: string, num: number) {
 	);
 }
 
+function parseRevisionDate(value: string): Date {
+	const normalized = value.replace(" ", "T");
+	return new Date(/(?:Z|[+-]\d{2}:?\d{2})$/.test(normalized) ? normalized : `${normalized}Z`);
+}
+
 function formatRevisionDate(value: string | null | undefined, withTime: boolean): string {
 	if (!value) return "";
-	return new Date(value + "Z").toLocaleString("ja-JP", {
+	return parseRevisionDate(value).toLocaleString("ja-JP", {
 		year: "numeric",
 		month: "short",
 		day: "numeric",
@@ -561,7 +558,7 @@ function renderUnifiedDiff(oldSource: string, newSource: string): string {
 function renderCompareDate(value: string | null): string {
 	const dateText = formatRevisionDate(value, true);
 	if (!value) return "";
-	const timestamp = Math.floor(new Date(`${value}Z`).getTime() / 1000);
+	const timestamp = Math.floor(parseRevisionDate(value).getTime() / 1000);
 	return (
 		`<span class="odate time_${timestamp} format_%25e%20%25b%20%25Y%2C%20%25H%3A%25M%7Cagohover"` +
 		` style="cursor: help; display: inline;">${escapeHtml(dateText)}</span>`
