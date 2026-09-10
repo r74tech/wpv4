@@ -527,6 +527,10 @@ describe("renderWikitext pipeline adapter", () => {
 			},
 		);
 
+		for (const result of [preview, publicResult, privateResult]) {
+			expect(result.html).toContain('sandbox="allow-scripts"');
+		}
+
 		expect(previewState.headCalls).toEqual([]);
 		expect(previewState.putCalls).toEqual([]);
 		expect(preview.html).toMatch(

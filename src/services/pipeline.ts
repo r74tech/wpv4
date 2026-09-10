@@ -633,6 +633,7 @@ export async function renderWikitext(
 	};
 	const rendered = await renderProcessedWikitext(document, {
 		styleMode: "separate",
+		htmlBlockSandbox: "allow-scripts",
 		resolvers: {
 			resolveUsers: async (usernames) => {
 				const lookupNames = new Set<string>();
