@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { api } from "../src/routes/api";
-import { changePageVisibility, deletePage } from "../src/services/page-ops";
+import { changePageVisibility, createPage, deletePage } from "../src/services/page-ops";
 import type { AppEnv, Bindings, Variables } from "../src/types/env";
 import { applyMigrations, createD1 } from "./helpers/d1";
 
@@ -94,6 +94,87 @@ describe("existing page API contract", () => {
 			{ tag: "alpha" },
 			{ tag: "beta" },
 		]);
+	});
+
+	test("attaches a new page revision and tags to the created page", async () => {
+		const sqlite = await createDatabase();
+		databases.push(sqlite);
+		const ulid = "01arz3ndektsv4rrffq69g5fav";
+
+		const created = await createPage(drizzle(createD1(sqlite)), {
+			type: "public",
+			title: "Generated",
+			source: "source",
+			tags: ["tag"],
+			comment: "created",
+			userId: 1,
+			now: new Date("2026-09-11T00:00:00.000Z"),
+			generateId: () => ulid,
+		});
+
+		expect(
+			sqlite
+				.query(
+					"SELECT p.category, r.comment, t.tag FROM pages p JOIN revisions r ON r.page_id=p.id JOIN page_tags t ON t.page_id=p.id WHERE p.id=?",
+				)
+				.get(created.pageId),
+		).toEqual({ category: "public", comment: "created", tag: "tag" });
+	});
+
+	test("rejects a visibility destination collision before moving HTML blocks", async () => {
+		const sqlite = await createDatabase();
+		databases.push(sqlite);
+		const ulid = "01arz3ndektsv4rrffq69g5fav";
+		sqlite.run("DROP TRIGGER trg_pages_managed_unix_name_insert");
+		sqlite.run("DROP TRIGGER trg_pages_managed_unix_name_update");
+		sqlite.run("DROP INDEX idx_pages_managed_unix_name");
+		sqlite.run(
+			"INSERT INTO pages (id, category, unix_name, title, created_by) VALUES (10, 'private', ?, 'Private', 1), (11, 'public', ?, 'Public', 1)",
+			[ulid, ulid],
+		);
+		const objects = new Map([[`local--html/${ulid}/hash`, "block"]]);
+		const r2 = {
+			async list({ prefix }: { prefix: string }) {
+				return {
+					objects: [...objects.keys()]
+						.filter((key) => key.startsWith(prefix))
+						.map((key) => ({ key })),
+					truncated: false,
+				};
+			},
+			async get(key: string) {
+				const body = objects.get(key);
+				return body === undefined ? null : { body, httpMetadata: {} };
+			},
+			async put(key: string, body: string) {
+				objects.set(key, body);
+			},
+			async delete(key: string) {
+				objects.delete(key);
+			},
+		} as unknown as R2Bucket;
+
+		const result = await changePageVisibility(drizzle(createD1(sqlite)), r2, {
+			unixName: ulid,
+			expectedCategory: "public",
+			target: "private",
+			force: true,
+			userId: 1,
+			now: new Date("2026-09-11T00:00:00.000Z"),
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			reason: "conflict",
+			actualCategory: "private",
+		});
+		expect(sqlite.query("SELECT category FROM pages WHERE id=10").get()).toEqual({
+			category: "private",
+		});
+		expect(sqlite.query("SELECT category FROM pages WHERE id=11").get()).toEqual({
+			category: "public",
+		});
+		expect([...objects.entries()]).toEqual([[`local--html/${ulid}/hash`, "block"]]);
 	});
 
 	test("preserves update conflict, lock, permission, and success responses", async () => {

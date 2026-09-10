@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 import { pages } from "@/db/schema";
 import {
@@ -90,7 +90,7 @@ export async function createPage(
 			.prepare(
 				`INSERT INTO revisions
 					(page_id, revision_number, title, source, comment, visibility, created_by, created_at)
-				 SELECT id, 0, ?, ?, ?, ?, ?, ? FROM pages WHERE unix_name = ?`,
+				 SELECT id, 0, ?, ?, ?, ?, ?, ? FROM pages WHERE category = ? AND unix_name = ?`,
 			)
 			.bind(
 				input.title,
@@ -99,12 +99,15 @@ export async function createPage(
 				toRevisionVisibility(input.type),
 				input.userId,
 				now,
+				input.type,
 				unixName,
 			),
 		...tags.map((tag) =>
 			db.$client
-				.prepare("INSERT INTO page_tags (page_id, tag) SELECT id, ? FROM pages WHERE unix_name = ?")
-				.bind(tag, unixName),
+				.prepare(
+					"INSERT INTO page_tags (page_id, tag) SELECT id, ? FROM pages WHERE category = ? AND unix_name = ?",
+				)
+				.bind(tag, input.type, unixName),
 		),
 	];
 	const results = await db.$client.batch(statements);
@@ -367,19 +370,36 @@ export async function changePageVisibility(
 		sleep?: (milliseconds: number) => Promise<void>;
 	},
 ): Promise<{ ok: true; page: Page; path: string; revisionNumber: number } | PageOperationError> {
-	const rows = await db
+	const candidates = await db
 		.select()
 		.from(pages)
-		.where(and(eq(pages.unixName, input.unixName), isNull(pages.deletedAt)))
-		.limit(1);
-	const page = rows[0];
-	if (!page) return { ok: false, reason: "not_found" };
+		.where(and(eq(pages.unixName, input.unixName), isNull(pages.deletedAt)));
+	const page = candidates.find(({ category }) => category === input.expectedCategory);
+	if (!page) {
+		if (candidates.length === 0) return { ok: false, reason: "not_found" };
+		return {
+			ok: false,
+			reason: "conflict",
+			actualCategory: candidates.length === 1 ? candidates[0].category : undefined,
+		};
+	}
 	if (!canManagePage(page, input.userId)) return { ok: false, reason: "forbidden" };
 	if (page.isLocked) return { ok: false, reason: "locked" };
-	if (page.category !== input.expectedCategory) {
-		return { ok: false, reason: "conflict", actualCategory: page.category };
-	}
 	if (page.category === input.target) return { ok: false, reason: "already_target" };
+	const targetCollision = await db
+		.select({ id: pages.id })
+		.from(pages)
+		.where(
+			and(
+				eq(pages.category, input.target),
+				eq(pages.unixName, input.unixName),
+				ne(pages.id, page.id),
+			),
+		)
+		.limit(1);
+	if (targetCollision.length > 0) {
+		return { ok: false, reason: "conflict", actualCategory: input.target };
+	}
 	const currentVisibility = input.expectedCategory;
 
 	const includeBecomesBroken = input.target === "private";

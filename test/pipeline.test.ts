@@ -58,7 +58,7 @@ function createDatabase(): Database {
 		CREATE TABLE pages (
 			id INTEGER PRIMARY KEY,
 			category TEXT NOT NULL,
-			unix_name TEXT NOT NULL UNIQUE,
+			unix_name TEXT NOT NULL,
 			title TEXT NOT NULL DEFAULT '',
 			source TEXT NOT NULL DEFAULT '',
 			revision_count INTEGER DEFAULT 0,
@@ -68,7 +68,8 @@ function createDatabase(): Database {
 			deleted_by INTEGER,
 			created_at TEXT DEFAULT '2026-07-24T00:00:00.000Z',
 			updated_at TEXT DEFAULT '2026-07-24T00:00:00.000Z',
-			deleted_at TEXT
+			deleted_at TEXT,
+			UNIQUE(category, unix_name)
 		);
 		CREATE TABLE page_tags (
 			id INTEGER PRIMARY KEY,
@@ -687,6 +688,24 @@ describe("renderWikitext pipeline adapter", () => {
 		expect(result.html).not.toContain("PRIVATE_INCLUDE");
 		expect(result.html).toContain("MATCHED_TAG");
 		expect(result.html).not.toContain("UNMATCHED_TAG");
+	});
+
+	test("resolves an explicit include category when unix names overlap", async () => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+		sqlite.run(`
+			INSERT INTO pages (id, category, unix_name, source) VALUES
+				(1, 'wiki-syntax', 'start', 'SYNTAX_START'),
+				(2, 'credit', 'start', 'CREDIT_START');
+		`);
+
+		const result = await renderWikitext("[[include credit:start]]", createEnv(sqlite), {
+			pageName: "start",
+			category: "wiki-syntax",
+		});
+
+		expect(result.html).toContain("CREDIT_START");
+		expect(result.html).not.toContain("SYNTAX_START");
 	});
 
 	test("normalizes local ULID include targets without relying on their category spelling", async () => {

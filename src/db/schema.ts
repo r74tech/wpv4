@@ -39,7 +39,7 @@ export const pages = sqliteTable(
 	{
 		id: integer("id").primaryKey({ autoIncrement: true }),
 		category: text("category").notNull(),
-		unixName: text("unix_name").notNull().unique(),
+		unixName: text("unix_name").notNull(),
 		title: text("title").notNull().default(""),
 		source: text("source").notNull().default(""),
 		revisionCount: integer("revision_count").default(0),
@@ -52,6 +52,10 @@ export const pages = sqliteTable(
 		deletedAt: text("deleted_at"),
 	},
 	(table) => [
+		uniqueIndex("idx_pages_category_unix_name").on(table.category, table.unixName),
+		uniqueIndex("idx_pages_managed_unix_name")
+			.on(table.unixName)
+			.where(sql`${table.category} IN ('public', 'share', 'private')`),
 		index("idx_pages_category").on(table.category),
 		index("idx_pages_deleted_at").on(table.deletedAt),
 	],

@@ -3,7 +3,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { pageTags, pages } from "@/db/schema";
 import { canEditPage, canManagePage, canViewPage, getVisibility } from "@/lib/visibility";
-import { parseIncludeSourcePath, resolveLocalIncludeUnixName } from "@/lib/include-reference";
+import { parseIncludeSourcePath, resolveLocalIncludeTarget } from "@/lib/include-reference";
 import { renderWikitext } from "@/services/pipeline";
 import type { AppEnv } from "@/types/env";
 import { parseAndNormalize, routeSuffix } from "@/routes/page-path";
@@ -55,16 +55,29 @@ export const pageReadRoutes = new Hono<AppEnv>()
 		const pagePath = routeSuffix(c.req.path, "/page-source/");
 		if (!pagePath) return c.json({ error: "Invalid path" }, 400);
 		const [category, unixName] = parseAndNormalize(pagePath);
-		const includeUnixName =
+		const includeTarget =
 			c.req.query("include") === "1"
-				? resolveLocalIncludeUnixName(parseIncludeSourcePath(pagePath))
+				? resolveLocalIncludeTarget(parseIncludeSourcePath(pagePath))
 				: null;
 		const viewerId = c.get("user")?.id ?? null;
 		const db = drizzle(c.env.DB);
-		const selector = includeUnixName
-			? and(eq(pages.unixName, includeUnixName), isNull(pages.deletedAt))
+		const selector = includeTarget
+			? includeTarget.category
+				? and(
+						eq(pages.category, includeTarget.category),
+						eq(pages.unixName, includeTarget.unixName),
+						isNull(pages.deletedAt),
+					)
+				: and(eq(pages.unixName, includeTarget.unixName), isNull(pages.deletedAt))
 			: and(eq(pages.category, category), eq(pages.unixName, unixName), isNull(pages.deletedAt));
-		const rows = await db.select().from(pages).where(selector).limit(1);
+		const rows = await db
+			.select()
+			.from(pages)
+			.where(selector)
+			.limit(includeTarget && !includeTarget.category ? 2 : 1);
+		if (includeTarget && !includeTarget.category && rows.length !== 1) {
+			return c.json({ error: "Page not found" }, 404);
+		}
 		const page = rows[0];
 		if (!page) return c.json({ error: "Page not found" }, 404);
 		if (!canViewPage(page, viewerId)) return c.json({ error: "Forbidden" }, 403);

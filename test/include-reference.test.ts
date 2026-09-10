@@ -2,22 +2,32 @@ import { describe, expect, test } from "bun:test";
 import {
 	formatIncludeSourcePath,
 	parseIncludeSourcePath,
-	resolveLocalIncludeUnixName,
+	resolveLocalIncludeTarget,
 } from "../src/lib/include-reference";
 
-describe("resolveLocalIncludeUnixName", () => {
+describe("resolveLocalIncludeTarget", () => {
 	test("accepts local page names regardless of site or category separator", () => {
 		const ulid = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 
-		expect(resolveLocalIncludeUnixName({ site: null, page: `public:${ulid}` })).toBe(
-			ulid.toLowerCase(),
-		);
-		expect(resolveLocalIncludeUnixName({ site: null, page: `public;${ulid}` })).toBe(
-			ulid.toLowerCase(),
-		);
-		expect(resolveLocalIncludeUnixName({ site: "scp-jp", page: `public:${ulid}` })).toBe(
-			ulid.toLowerCase(),
-		);
+		expect(resolveLocalIncludeTarget({ site: null, page: `public:${ulid}` })).toEqual({
+			category: null,
+			unixName: ulid.toLowerCase(),
+		});
+		expect(resolveLocalIncludeTarget({ site: null, page: `public;${ulid}` })).toEqual({
+			category: null,
+			unixName: ulid.toLowerCase(),
+		});
+		expect(resolveLocalIncludeTarget({ site: "scp-jp", page: `public:${ulid}` })).toEqual({
+			category: null,
+			unixName: ulid.toLowerCase(),
+		});
+	});
+
+	test("retains an explicit category for named pages", () => {
+		expect(resolveLocalIncludeTarget({ site: "scp-jp", page: "credit:start" })).toEqual({
+			category: "credit",
+			unixName: "start",
+		});
 	});
 });
 

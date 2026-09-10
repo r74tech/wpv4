@@ -3,7 +3,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { ne, and, sql, isNull } from "drizzle-orm";
 import { pages } from "@/db/schema";
 import { canViewPage, normalizeUlid } from "@/lib/visibility";
-import { resolveLocalIncludeUnixName } from "@/lib/include-reference";
+import { resolveLocalIncludeTarget } from "@/lib/include-reference";
 
 type DrizzleD1 = ReturnType<typeof drizzle>;
 
@@ -48,7 +48,7 @@ export async function findReferencingPages(
 
 	for (const c of candidates) {
 		const referencesTarget = extractIncludeReferences(c.source ?? "").some(
-			(reference) => resolveLocalIncludeUnixName(reference.location) === targetUnixName,
+			(reference) => resolveLocalIncludeTarget(reference.location)?.unixName === targetUnixName,
 		);
 		if (!referencesTarget) continue;
 		const canView = canViewPage(c, viewerId);

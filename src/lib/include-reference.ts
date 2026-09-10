@@ -24,17 +24,24 @@ export function parseIncludeSourcePath(path: string): PageRef {
 	return { site: null, page: path };
 }
 
-/**
- * WDPRが解析したinclude先を、wpv4のD1 lookupで使うlocal unix_nameへ変換する。
- * site指定とcategory、URL suffixはDB lookupに使わず、ULIDだけは全入口の規約どおり
- * 小文字へ正規化する。
- */
-export function resolveLocalIncludeUnixName(pageRef: PageRef): string | null {
+export type LocalIncludeTarget = {
+	category: string | null;
+	unixName: string;
+};
+
+/** WDPRが解析したinclude先をwpv4のD1 lookup対象へ変換する。 */
+export function resolveLocalIncludeTarget(pageRef: PageRef): LocalIncludeTarget | null {
 	const cleaned = pageRef.page.replace(/^\/+|\/+$/g, "");
 	const pageSegment = cleaned.split("/")[0] ?? "";
 	const separatorIndex = pageSegment.search(/[:;]/);
 	const unixName = separatorIndex === -1 ? pageSegment : pageSegment.slice(separatorIndex + 1);
 	if (!unixName) return null;
 
-	return isValidUlid(unixName) ? normalizeUlid(unixName) : unixName;
+	if (isValidUlid(unixName)) {
+		return { category: null, unixName: normalizeUlid(unixName) };
+	}
+	return {
+		category: separatorIndex === -1 ? null : pageSegment.slice(0, separatorIndex),
+		unixName,
+	};
 }

@@ -10,7 +10,7 @@ import { eq, and, ne, inArray, notInArray, desc, asc, sql, isNull, type SQL } fr
 import { alias } from "drizzle-orm/sqlite-core";
 import { pages, pageTags, users } from "@/db/schema";
 import { canViewPage, isUlidCategory, normalizeUlid, visibilityPolicy } from "@/lib/visibility";
-import { resolveLocalIncludeUnixName } from "@/lib/include-reference";
+import { resolveLocalIncludeTarget } from "@/lib/include-reference";
 import { userAvatarUrl, userProfileUrl } from "@/lib/user-markup";
 import { normalizeWikidotCategoryName } from "@/lib/wikidot-name";
 import type { Bindings } from "@/types/env";
@@ -568,14 +568,21 @@ export async function renderWikitext(
 		settings: { ...createSettings("page"), allowStyleElements: true },
 		dataProvider: {
 			fetchInclude: async (pageRef) => {
-				const unixName = resolveLocalIncludeUnixName(pageRef);
-				if (unixName === null) return null;
+				const target = resolveLocalIncludeTarget(pageRef);
+				if (target === null) return null;
+				const selector = target.category
+					? and(
+							eq(pages.category, target.category),
+							eq(pages.unixName, target.unixName),
+							isNull(pages.deletedAt),
+						)
+					: and(eq(pages.unixName, target.unixName), isNull(pages.deletedAt));
 				const result = await db
 					.select({ source: pages.source, category: pages.category })
 					.from(pages)
-					.where(and(eq(pages.unixName, unixName), isNull(pages.deletedAt)))
-					.limit(1);
-				if (!result[0] || !visibilityPolicy(result[0].category).canInclude) return null;
+					.where(selector)
+					.limit(target.category ? 1 : 2);
+				if (result.length !== 1 || !visibilityPolicy(result[0].category).canInclude) return null;
 				return result[0].source;
 			},
 			fetchListPages: (query) =>
@@ -680,7 +687,13 @@ export async function renderWikitext(
 		const currentPage = await db
 			.select({ category: pages.category })
 			.from(pages)
-			.where(and(eq(pages.unixName, options.pageName), isNull(pages.deletedAt)))
+			.where(
+				and(
+					eq(pages.category, options.category),
+					eq(pages.unixName, options.pageName),
+					isNull(pages.deletedAt),
+				),
+			)
 			.limit(1);
 		const currentIsPrivate = currentPage[0]
 			? visibilityPolicy(currentPage[0].category).visibility === "private"

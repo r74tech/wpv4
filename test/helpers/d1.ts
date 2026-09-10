@@ -43,7 +43,19 @@ export function createD1(sqlite: Database): D1Database {
 	} as unknown as D1Database;
 }
 
-export async function applyMigrations(sqlite: Database, through = 6): Promise<void> {
+export function applyMigrationSql(sqlite: Database, migration: string): void {
+	sqlite.run("PRAGMA foreign_keys = ON");
+	sqlite.run("BEGIN");
+	try {
+		sqlite.run(migration);
+		sqlite.run("COMMIT");
+	} catch (error) {
+		sqlite.run("ROLLBACK");
+		throw error;
+	}
+}
+
+export async function applyMigrations(sqlite: Database, through = 7): Promise<void> {
 	for (let number = 1; number <= through; number += 1) {
 		const names = [
 			"0001_initial.sql",
@@ -52,8 +64,9 @@ export async function applyMigrations(sqlite: Database, through = 6): Promise<vo
 			"0004_api_keys.sql",
 			"0005_soft_delete_and_api_audit.sql",
 			"0006_soft_delete_api_keys.sql",
+			"0007_scope_page_unix_name_by_category.sql",
 		];
 		const file = Bun.file(new URL(`../../db/migrations/${names[number - 1]}`, import.meta.url));
-		sqlite.run(await file.text());
+		applyMigrationSql(sqlite, await file.text());
 	}
 }
