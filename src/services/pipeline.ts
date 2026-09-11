@@ -161,9 +161,8 @@ const ORDER_COLUMN_MAP = {
 	fullname: pages.unixName,
 } as const;
 
-// 大量取得による負荷を抑えるため、取得件数と OFFSET に上限を設ける。
+// 大量取得による負荷を抑えるため、1ページの取得件数に上限を設ける。
 const LIST_PAGES_LIMIT_CAP = 250;
-const LIST_PAGES_OFFSET_CAP = 1000;
 const LIST_PAGES_DEFAULT_PER_PAGE = 20;
 const HIDDEN_TAG_PREFIX = "_";
 
@@ -401,10 +400,7 @@ async function fetchListPagesData(
 		perPage,
 		LIST_PAGES_LIMIT_CAP,
 	);
-	const offset =
-		query.offset !== undefined && query.offset > 0
-			? Math.min(query.offset, LIST_PAGES_OFFSET_CAP)
-			: 0;
+	const offset = query.offset !== undefined && query.offset > 0 ? query.offset : 0;
 
 	// totalCount は WHERE のみ適用（limit/offset 抜き）。
 	const totalCountRow = await db
@@ -434,7 +430,7 @@ async function fetchListPagesData(
 		.leftJoin(creator, eq(pages.createdBy, creator.id))
 		.leftJoin(updater, eq(pages.updatedBy, updater.id))
 		.where(whereClause)
-		.orderBy(orderDir(orderField))
+		.orderBy(orderDir(orderField), orderDir(pages.id))
 		.limit(limit)
 		.offset(offset);
 

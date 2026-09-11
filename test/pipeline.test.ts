@@ -845,6 +845,76 @@ describe("renderWikitext pipeline adapter", () => {
 		if (count > 0) expect(result.html).toContain(`Sample ${String(first).padStart(3, "0")}`);
 	});
 
+	test("follows the tagged ListPages pager beyond 1000 items with stable ordering", async () => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+		sqlite.run(`
+			WITH RECURSIVE sequence(id) AS (
+				SELECT 1 UNION ALL SELECT id + 1 FROM sequence WHERE id < 1251
+			)
+			INSERT INTO pages (id, category, unix_name, title)
+			SELECT id, 'public', printf('sample-%04d', id), '同順位' FROM sequence;
+			INSERT INTO page_tags (page_id, tag) SELECT id, 'jp' FROM pages;
+		`);
+		const env = createEnv(sqlite);
+		const source = [
+			'[[module ListPages tags="@URL" perPage="250" category="*" order="title asc" wrapper="no"]]',
+			"%%name%% / %%index%% / %%total%%",
+			"[[/module]]",
+		].join("\n");
+		const render = (urlPath: string) =>
+			renderWikitext(source, env, { pageName: "page-tags", category: "system", urlPath });
+		const first = await render("/system:page-tags/tag/jp");
+		expect(first.html).toContain("sample-0001 / 1 / 1251");
+		expect(first.html).toContain("page 1 of 6");
+		const lastLink = (await inspectLinks(first.html)).find(({ href }) => href.endsWith("/p/6"));
+		expect(lastLink?.href).toBe("/system:page-tags/tag/jp/p/6");
+
+		for (const path of [lastLink!.href, "/system:page-tags/tag/jp/p/999"]) {
+			const last = await render(path);
+			expect(last.html.match(/class="list-pages-item"/g)).toHaveLength(1);
+			expect(last.html).toContain("sample-1251 / 1251 / 1251");
+			expect(last.html).toContain("page 6 of 6");
+			expect((await inspectLinks(last.html)).some(({ href }) => href.endsWith("/p/5"))).toBe(true);
+		}
+	});
+
+	test("keeps prefixed pagers independent while applying offset and total limit", async () => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+		sqlite.run(`
+			WITH RECURSIVE sequence(id) AS (
+				SELECT 1 UNION ALL SELECT id + 1 FROM sequence WHERE id < 12
+			)
+			INSERT INTO pages (id, category, unix_name, title)
+			SELECT id, 'public', printf('sample-%02d', id), '同順位' FROM sequence;
+		`);
+		const source = [
+			'[[module ListPages category="*" order="title asc" perPage="3" offset="2" limit="5" separate="no"]]',
+			"main: %%name%%",
+			"[[/module]]",
+			'[[module ListPages category="*" order="title asc" perPage="3" urlAttrPrefix="other"]]',
+			"other: %%name%%",
+			"[[/module]]",
+		].join("\n");
+		const result = await renderWikitext(source, createEnv(sqlite), {
+			pageName: "start",
+			category: "public",
+			urlPath: "/start/p/2/other_p/1",
+		});
+		expect(result.html).toContain("main: sample-06");
+		expect(result.html).toContain("main: sample-07");
+		expect(result.html).not.toContain("main: sample-08");
+		expect(result.html).toContain("other: sample-01");
+		expect(result.html).toContain("other: sample-03");
+		expect(result.html).not.toContain("other: sample-04");
+		expect(result.html).toContain("page 2 of 2");
+		expect(result.html).toContain("page 1 of 4");
+		const links = await inspectLinks(result.html);
+		expect(links.some(({ href }) => href === "/start/other_p/1/p/1")).toBe(true);
+		expect(links.some(({ href }) => href === "/start/p/2/other_p/2")).toBe(true);
+	});
+
 	test("filters ListPages by author and renders creator and updater metadata", async () => {
 		const sqlite = createDatabase();
 		databases.push(sqlite);
