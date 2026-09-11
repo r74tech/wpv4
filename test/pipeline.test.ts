@@ -781,6 +781,70 @@ describe("renderWikitext pipeline adapter", () => {
 		expect(result.html).not.toContain("Alpha");
 	});
 
+	test.each([250, 10000])("renders at most 250 tagged items for perPage=%i", async (perPage) => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+		sqlite.run(`
+			WITH RECURSIVE sequence(id) AS (
+				SELECT 1 UNION ALL SELECT id + 1 FROM sequence WHERE id < 251
+			)
+			INSERT INTO pages (id, category, unix_name, title)
+			SELECT id, 'public', printf('sample-%03d', id), printf('Sample %03d', id) FROM sequence;
+			INSERT INTO page_tags (page_id, tag) SELECT id, 'jp' FROM pages;
+			INSERT INTO pages (id, category, unix_name, title, deleted_at) VALUES
+				(252, 'private', 'private', 'EXCLUDED_PRIVATE', NULL),
+				(253, 'share', 'share', 'EXCLUDED_SHARE', NULL),
+				(254, 'public', 'deleted', 'EXCLUDED_DELETED', '2026-09-11'),
+				(255, 'public', 'other', 'EXCLUDED_OTHER_TAG', NULL);
+			INSERT INTO page_tags (page_id, tag) VALUES
+				(252, 'jp'), (253, 'jp'), (254, 'jp'), (255, 'en');
+		`);
+		const executions: QueryExecution[] = [];
+		const result = await renderWikitext(
+			[
+				`[[module ListPages tags="@URL" perPage="${perPage}" category="*" order="title asc"]]`,
+				"%%title%% / %%tags%% / %%total%%",
+				"[[/module]]",
+			].join("\n"),
+			createEnv(sqlite, { executions }),
+			{ pageName: "page-tags", category: "system", urlPath: "/system:page-tags/tag/jp" },
+		);
+
+		expect(result.html.match(/class="list-pages-item"/g)).toHaveLength(250);
+		expect(result.html).toContain("Sample 250 / jp / 251");
+		expect(result.html).not.toContain("Sample 251");
+		expect(result.html).not.toContain("EXCLUDED_");
+		for (const execution of executions) expect(execution.params.length).toBeLessThanOrEqual(100);
+	});
+
+	test.each([
+		{ attributes: 'perPage="5"', count: 5, first: 1 },
+		{ attributes: 'limit="3" perPage="5"', count: 3, first: 1 },
+		{ attributes: 'limit="30" perPage="5"', count: 5, first: 1 },
+		{ attributes: 'limit="30"', count: 20, first: 1 },
+		{ attributes: 'perPage="0"', count: 20, first: 1 },
+		{ attributes: 'perPage="-1"', count: 20, first: 1 },
+		{ attributes: 'limit="0" perPage="5"', count: 0, first: 1 },
+		{ attributes: 'per_page="@URL" offset="@URL|0"', count: 5, first: 6 },
+	])("applies ListPages sizing for $attributes", async ({ attributes, count, first }) => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+		sqlite.run(`
+			WITH RECURSIVE sequence(id) AS (
+				SELECT 1 UNION ALL SELECT id + 1 FROM sequence WHERE id < 31
+			)
+			INSERT INTO pages (id, category, unix_name, title)
+			SELECT id, 'public', printf('sample-%03d', id), printf('Sample %03d', id) FROM sequence;
+		`);
+		const result = await renderWikitext(
+			`[[module ListPages category="*" order="title asc" ${attributes}]]\n%%title%%\n[[/module]]`,
+			createEnv(sqlite),
+			{ pageName: "start", category: "public", urlPath: "/start/per-page/5/offset/5" },
+		);
+		expect(result.html.match(/class="list-pages-item"/g) ?? []).toHaveLength(count);
+		if (count > 0) expect(result.html).toContain(`Sample ${String(first).padStart(3, "0")}`);
+	});
+
 	test("filters ListPages by author and renders creator and updater metadata", async () => {
 		const sqlite = createDatabase();
 		databases.push(sqlite);

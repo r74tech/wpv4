@@ -150,7 +150,7 @@ async function buildPrivateHtmlBlockUrl(
 	return `${filesDomain}/private--html/${page}/${hash}?ukey=${ukey}&exp=${exp}`;
 }
 
-const D1_PAGE_EXISTENCE_BATCH_SIZE = 90;
+const D1_PAGE_BATCH_SIZE = 90;
 
 // Wikidot ListPages の order 文字列を pages カラムにマップする。
 // 未知の order はデフォルト（created_at DESC）にフォールバック。
@@ -161,10 +161,10 @@ const ORDER_COLUMN_MAP = {
 	fullname: pages.unixName,
 } as const;
 
-// 上限ガード（wdmock-cf 同等）。 SQL injection や DoS（大 OFFSET）を防ぐ目的。
-const LIST_PAGES_LIMIT_CAP = 100;
+// 大量取得による負荷を抑えるため、取得件数と OFFSET に上限を設ける。
+const LIST_PAGES_LIMIT_CAP = 250;
 const LIST_PAGES_OFFSET_CAP = 1000;
-const LIST_PAGES_DEFAULT_LIMIT = 20;
+const LIST_PAGES_DEFAULT_PER_PAGE = 20;
 const HIDDEN_TAG_PREFIX = "_";
 
 type Db = ReturnType<typeof drizzle>;
@@ -208,8 +208,8 @@ async function findExistingPages(
 
 	const batches: string[][] = [];
 	const allUnixNames = [...unixNames];
-	for (let index = 0; index < allUnixNames.length; index += D1_PAGE_EXISTENCE_BATCH_SIZE) {
-		batches.push(allUnixNames.slice(index, index + D1_PAGE_EXISTENCE_BATCH_SIZE));
+	for (let index = 0; index < allUnixNames.length; index += D1_PAGE_BATCH_SIZE) {
+		batches.push(allUnixNames.slice(index, index + D1_PAGE_BATCH_SIZE));
 	}
 
 	const results = await Promise.all(
@@ -394,11 +394,13 @@ async function fetchListPagesData(
 			: pages.createdAt;
 	const orderDir = query.order?.direction === "asc" ? asc : desc;
 
-	// Limit / Offset（上限ガード）。 wdmock-cf と同等の挙動。
-	const limit =
-		query.limit !== undefined && query.limit > 0
-			? Math.min(query.limit, LIST_PAGES_LIMIT_CAP)
-			: LIST_PAGES_DEFAULT_LIMIT;
+	const perPage =
+		query.perPage !== undefined && query.perPage > 0 ? query.perPage : LIST_PAGES_DEFAULT_PER_PAGE;
+	const limit = Math.min(
+		query.limit !== undefined && query.limit > 0 ? query.limit : LIST_PAGES_LIMIT_CAP,
+		perPage,
+		LIST_PAGES_LIMIT_CAP,
+	);
 	const offset =
 		query.offset !== undefined && query.offset > 0
 			? Math.min(query.offset, LIST_PAGES_OFFSET_CAP)
@@ -442,15 +444,15 @@ async function fetchListPagesData(
 
 	// 対象 page の tags のみ取得（全件読みを避ける）
 	const visibleIds = visibleRows.map(({ page }) => page.id);
-	const tagRows =
-		visibleIds.length > 0
-			? await db.select().from(pageTags).where(inArray(pageTags.pageId, visibleIds))
-			: [];
 	const tagsByPageId = new Map<number, string[]>();
-	for (const t of tagRows) {
-		const existing = tagsByPageId.get(t.pageId) ?? [];
-		existing.push(t.tag);
-		tagsByPageId.set(t.pageId, existing);
+	for (let index = 0; index < visibleIds.length; index += D1_PAGE_BATCH_SIZE) {
+		const batch = visibleIds.slice(index, index + D1_PAGE_BATCH_SIZE);
+		const tagRows = await db.select().from(pageTags).where(inArray(pageTags.pageId, batch));
+		for (const t of tagRows) {
+			const existing = tagsByPageId.get(t.pageId) ?? [];
+			existing.push(t.tag);
+			tagsByPageId.set(t.pageId, existing);
+		}
 	}
 
 	return {
