@@ -9,10 +9,10 @@
 		"typecheck": "bunx tsc --noEmit"
 	},
 	"dependencies": {
-		"@wdprlib/runtime": "^1.0.2"
+		"@wdprlib/runtime": "^1.4.0"
 	},
 	"devDependencies": {
-		"@cloudflare/workers-types": "^4.20260520.1",
-		"wrangler": "^4.0.0"
+		"@cloudflare/workers-types": "^4.20260702.1",
+		"wrangler": "^4.131.1"
 	}
 }
