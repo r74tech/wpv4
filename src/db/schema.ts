@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { sqliteTable, text, integer, uniqueIndex, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, uniqueIndex, index, check } from "drizzle-orm/sqlite-core";
 
 const now = sql`(datetime('now'))`;
 
@@ -181,4 +181,43 @@ export const votes = sqliteTable(
 		createdAt: text("created_at").default(now),
 	},
 	(table) => [uniqueIndex("idx_votes_unique").on(table.pageId, table.userId)],
+);
+
+export const customRatingAxes = sqliteTable(
+	"custom_rating_axes",
+	{
+		id: integer("id").primaryKey({ autoIncrement: true }),
+		key: text("key").notNull(),
+		label: text("label").notNull(),
+		upLabel: text("up_label"),
+		neutralLabel: text("neutral_label"),
+		downLabel: text("down_label"),
+		createdAt: text("created_at").default(now),
+	},
+	(table) => [
+		uniqueIndex("idx_custom_rating_axes_key").on(table.key),
+		check("chk_custom_rating_axes_key", sql`length(${table.key}) > 0`),
+	],
+);
+
+export const customVotes = sqliteTable(
+	"custom_votes",
+	{
+		id: integer("id").primaryKey({ autoIncrement: true }),
+		pageId: integer("page_id")
+			.notNull()
+			.references(() => pages.id, { onDelete: "cascade" }),
+		axisId: integer("axis_id")
+			.notNull()
+			.references(() => customRatingAxes.id),
+		userId: integer("user_id")
+			.notNull()
+			.references(() => users.id),
+		value: integer("value").notNull(),
+		createdAt: text("created_at").default(now),
+	},
+	(table) => [
+		uniqueIndex("idx_custom_votes_unique").on(table.pageId, table.axisId, table.userId),
+		check("chk_custom_votes_value", sql`${table.value} IN (-1, 0, 1)`),
+	],
 );

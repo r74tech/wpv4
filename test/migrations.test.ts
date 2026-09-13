@@ -12,6 +12,8 @@ describe("database migrations", () => {
 				.all() as { name: string }[];
 			expect(tables.map(({ name }) => name)).toContain("api_keys");
 			expect(tables.map(({ name }) => name)).toContain("api_audit_events");
+			expect(tables.map(({ name }) => name)).toContain("custom_rating_axes");
+			expect(tables.map(({ name }) => name)).toContain("custom_votes");
 			const pageColumns = sqlite.query("PRAGMA table_info(pages)").all() as { name: string }[];
 			expect(pageColumns.map(({ name }) => name)).toContain("deleted_at");
 			expect(pageColumns.map(({ name }) => name)).toContain("deleted_by");
@@ -21,6 +23,62 @@ describe("database migrations", () => {
 					"INSERT INTO api_audit_events (user_id, action, page_path, status_code, response_json) VALUES (1, 'page.create', '(new)', 400, 'invalid')",
 				),
 			).toThrow();
+		} finally {
+			sqlite.close();
+		}
+	});
+
+	test("adds custom rating storage while preserving existing votes", async () => {
+		const sqlite = new Database(":memory:");
+		try {
+			await applyMigrations(sqlite, 7);
+			sqlite.run("INSERT INTO users (id, wikidot_id, name, unix_name) VALUES (1, 1, 'A', 'a')");
+			sqlite.run(
+				"INSERT INTO pages (id, category, unix_name) VALUES (1, 'docs', 'article'), (2, 'docs', 'other')",
+			);
+			sqlite.run("INSERT INTO votes (id, page_id, user_id, value) VALUES (1, 1, 1, -1)");
+			const before = sqlite.query("SELECT * FROM votes").all();
+			applyMigrationSql(
+				sqlite,
+				await Bun.file(new URL("../db/migrations/0008_custom_ratings.sql", import.meta.url)).text(),
+			);
+			expect(sqlite.query("SELECT * FROM votes").all()).toEqual(before);
+			expect(sqlite.query("SELECT * FROM custom_rating_axes").all()).toEqual([]);
+			expect(sqlite.query("SELECT * FROM custom_votes").all()).toEqual([]);
+			sqlite.run(
+				"INSERT INTO custom_rating_axes (id, key, label, up_label, neutral_label, down_label) VALUES (1, 'Quality', '品質', '▲', '■', '▼'), (2, 'quality', 'quality', NULL, NULL, NULL)",
+			);
+			sqlite.run(
+				"INSERT INTO custom_votes (page_id, axis_id, user_id, value) VALUES (1, 1, 1, 0), (1, 2, 1, 1), (2, 1, 1, -1)",
+			);
+			expect(
+				sqlite.query("SELECT value FROM custom_votes WHERE page_id=1 AND axis_id=1").get(),
+			).toEqual({ value: 0 });
+			expect(
+				sqlite
+					.query("SELECT up_label, neutral_label, down_label FROM custom_rating_axes WHERE id=1")
+					.get(),
+			).toEqual({ up_label: "▲", neutral_label: "■", down_label: "▼" });
+			for (const query of [
+				"INSERT INTO custom_rating_axes (key, label) VALUES ('Quality', 'duplicate')",
+				"INSERT INTO custom_rating_axes (key, label) VALUES ('', 'empty')",
+				"INSERT INTO custom_votes (page_id, axis_id, user_id, value) VALUES (1, 1, 1, 1)",
+				"INSERT INTO custom_votes (page_id, axis_id, user_id, value) VALUES (2, 2, 1, 2)",
+				"INSERT INTO custom_votes (page_id, axis_id, user_id, value) VALUES (2, 999, 1, 1)",
+				"INSERT INTO custom_votes (page_id, axis_id, user_id, value) VALUES (2, 2, 999, 1)",
+				"INSERT INTO custom_votes (page_id, axis_id, user_id, value) VALUES (999, 2, 1, 1)",
+				"DELETE FROM custom_rating_axes WHERE id=1",
+			])
+				expect(() => sqlite.run(query)).toThrow();
+			sqlite.run("UPDATE pages SET category='share', deleted_at='2026-09-13' WHERE id=1");
+			expect(
+				sqlite.query("SELECT COUNT(*) AS count FROM custom_votes WHERE page_id=1").get(),
+			).toEqual({ count: 2 });
+			sqlite.run("DELETE FROM pages WHERE id=1");
+			expect(sqlite.query("SELECT page_id, axis_id, value FROM custom_votes").all()).toEqual([
+				{ page_id: 2, axis_id: 1, value: -1 },
+			]);
+			expect(sqlite.query("PRAGMA foreign_key_check").all()).toEqual([]);
 		} finally {
 			sqlite.close();
 		}
