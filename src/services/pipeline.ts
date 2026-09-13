@@ -196,14 +196,20 @@ async function readPageText(
 	page: PageData,
 ): Promise<Pick<PageData, "readableText" | "firstParagraph" | "size">> {
 	let unresolvedInclude = false;
+	let missingIncludeMarker: string | undefined;
 	const document = await processWikitext(page.content ?? "", {
-		page: { fullName: page.fullname, tags: [...page.tags, ...page.hiddenTags], site: "wpv4" },
+		page: {
+			fullName: page.fullname,
+			unixName: page.name,
+			tags: [...page.tags, ...page.hiddenTags],
+			site: "wpv4",
+		},
 		settings: { ...createSettings("page"), allowStyleElements: true },
 		dataProvider: {
 			fetchInclude: async (reference) => {
 				const source = await fetchIncludeSource(db, reference).catch(() => null);
-				if (source === null) unresolvedInclude = true;
-				return source;
+				// Follow failed includes through conditional expansion without treating error UI as prose.
+				return source ?? (missingIncludeMarker ??= crypto.randomUUID());
 			},
 		},
 		readableText: {
@@ -220,6 +226,7 @@ async function readPageText(
 	// Incomplete expansion cannot supply a full-page excerpt or character count.
 	if (
 		unresolvedInclude ||
+		(missingIncludeMarker !== undefined && document.readableText.includes(missingIncludeMarker)) ||
 		document.diagnostics.some(
 			({ severity, code }) =>
 				severity === "error" ||

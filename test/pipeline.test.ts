@@ -859,6 +859,62 @@ describe("renderWikitext pipeline adapter", () => {
 	});
 
 	test.each([
+		[[], "Hello", "5"],
+		[["visible"], "", ""],
+	])("only rejects unresolved includes in visible text: %j", async (tags, text, size) => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+		const source = "Hello\n[[iftags +visible]]\n[[include missing]]\n[[/iftags]]";
+		sqlite.run(
+			"INSERT INTO pages (id, category, unix_name, source) VALUES (1, 'docs', 'article', ?)",
+			[source],
+		);
+		for (const tag of tags) sqlite.run("INSERT INTO page_tags (page_id, tag) VALUES (1, ?)", [tag]);
+		const direct = await renderWikitext(source, createEnv(sqlite), {
+			pageName: "article",
+			category: "docs",
+			tags,
+		});
+		expect(direct.html.includes("cannot be found")).toBe(tags.length > 0);
+		const result = await renderWikitext(
+			'[[module ListPages category="docs"]]\nsummary=%%summary%%;preview=%%preview%%;size=%%size%%;\n[[/module]]',
+			createEnv(sqlite),
+			{ pageName: "list", category: "_default" },
+		);
+		expect(result.html).toContain(`size=${size};`);
+		if (text) {
+			expect(result.html).toMatch(/summary=<span[^>]*>Hello<\/span>/);
+			expect(result.html).toMatch(/preview=<span[^>]*>Hello<\/span>/);
+		} else {
+			expect(result.html).toContain("summary=;preview=;");
+		}
+	});
+
+	test.each(["article", "docs:article"])(
+		"preserves self-include literals in ListPages text: %s",
+		async (reference) => {
+			const sqlite = createDatabase();
+			databases.push(sqlite);
+			const source = `[[include ${reference}]]`;
+			sqlite.run(
+				"INSERT INTO pages (id, category, unix_name, source) VALUES (1, 'docs', 'article', ?)",
+				[source],
+			);
+			const direct = await renderWikitext(source, createEnv(sqlite), {
+				pageName: "article",
+				category: "docs",
+			});
+			expect(direct.html).toBe(`<p>${source}</p>`);
+			const result = await renderWikitext(
+				'[[module ListPages category="docs"]]\npreview=%%preview%%;size=%%size%%;\n[[/module]]',
+				createEnv(sqlite),
+				{ pageName: "list", category: "_default" },
+			);
+			expect(result.html).toContain(`[[include&#32;${reference}]]</span>;size=${source.length};`);
+		},
+	);
+
+	test.each([
 		["**A**日e\u0301", "3"],
 		["", "0"],
 		["[[code]]\nhello", "5"],
