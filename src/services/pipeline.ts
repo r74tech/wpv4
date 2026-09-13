@@ -1,6 +1,10 @@
-import { createSettings, processWikitext } from "@wdprlib/parser";
+import { createSettings, extractDataRequirements, processWikitext } from "@wdprlib/parser";
 import type {
+	ListPagesDataRequirement,
 	NormalizedListPagesQuery,
+	PageData,
+	PageRef,
+	RatingState,
 	TagCloudDataRequirement,
 	TagCloudExternalData,
 } from "@wdprlib/parser";
@@ -8,7 +12,7 @@ import { renderWikitext as renderProcessedWikitext } from "@wdprlib/render";
 import { drizzle } from "drizzle-orm/d1";
 import { eq, and, ne, inArray, notInArray, desc, asc, sql, isNull, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
-import { pages, pageTags, users } from "@/db/schema";
+import { pages, pageTags, users, votes } from "@/db/schema";
 import { canViewPage, isUlidCategory, normalizeUlid, visibilityPolicy } from "@/lib/visibility";
 import { resolveLocalIncludeTarget } from "@/lib/include-reference";
 import { userAvatarUrl, userProfileUrl } from "@/lib/user-markup";
@@ -168,6 +172,73 @@ const HIDDEN_TAG_PREFIX = "_";
 
 type Db = ReturnType<typeof drizzle>;
 
+async function fetchIncludeSource(db: Db, pageRef: PageRef): Promise<string | null> {
+	const target = resolveLocalIncludeTarget(pageRef);
+	if (target === null) return null;
+	const selector = target.category
+		? and(
+				eq(pages.category, target.category),
+				eq(pages.unixName, target.unixName),
+				isNull(pages.deletedAt),
+			)
+		: and(eq(pages.unixName, target.unixName), isNull(pages.deletedAt));
+	const result = await db
+		.select({ source: pages.source, category: pages.category })
+		.from(pages)
+		.where(selector)
+		.limit(target.category ? 1 : 2);
+	if (result.length !== 1 || !visibilityPolicy(result[0].category).canInclude) return null;
+	return result[0].source;
+}
+
+async function readPageText(
+	db: Db,
+	page: PageData,
+): Promise<Pick<PageData, "readableText" | "firstParagraph" | "size">> {
+	let unresolvedInclude = false;
+	const document = await processWikitext(page.content ?? "", {
+		page: { fullName: page.fullname, tags: [...page.tags, ...page.hiddenTags], site: "wpv4" },
+		settings: { ...createSettings("page"), allowStyleElements: true },
+		dataProvider: {
+			fetchInclude: async (reference) => {
+				const source = await fetchIncludeSource(db, reference).catch(() => null);
+				if (source === null) unresolvedInclude = true;
+				return source;
+			},
+		},
+		readableText: {
+			exclude: (element) => {
+				if (element.element === "include" && element.data.elements.length === 0) {
+					unresolvedInclude = true;
+					return true;
+				}
+				return false;
+			},
+		},
+	});
+	const remaining = extractDataRequirements(document.ast).requirements;
+	// Incomplete expansion cannot supply a full-page excerpt or character count.
+	if (
+		unresolvedInclude ||
+		document.diagnostics.some(
+			({ severity, code }) =>
+				severity === "error" ||
+				code === "include-resolution-limit" ||
+				code === "module-resolution-limit",
+		) ||
+		remaining.listPages.length > 0 ||
+		remaining.listUsers.length > 0 ||
+		remaining.tagCloud.length > 0
+	) {
+		return {};
+	}
+	return {
+		readableText: document.readableText,
+		firstParagraph: document.firstParagraph,
+		size: document.characterCount,
+	};
+}
+
 function normalizePageLinkTarget(page: string): string {
 	let normalized = page.toLowerCase();
 	if (normalized.includes(":")) normalized = normalized.replace(/:\s+/g, ":");
@@ -245,6 +316,7 @@ async function findExistingPages(
 async function fetchListPagesData(
 	db: Db,
 	query: NormalizedListPagesQuery,
+	requirement: ListPagesDataRequirement,
 	ctx: {
 		currentCategory: string;
 		currentPageName: string;
@@ -451,27 +523,38 @@ async function fetchListPagesData(
 		}
 	}
 
+	const pageData: PageData[] = visibleRows.map(({ page: p, creator, updater }) => ({
+		name: p.unixName,
+		category: p.category,
+		fullname: formatPagePath(p.category, p.unixName),
+		title: p.title,
+		createdAt: new Date(p.createdAt ?? ""),
+		createdBy: creator ?? undefined,
+		updatedAt: new Date(p.updatedAt ?? ""),
+		updatedBy: updater ?? undefined,
+		tags: tagsByPageId.get(p.id) ?? [],
+		hiddenTags: [] as string[],
+		rating: 0,
+		ratingVotes: 0,
+		revisions: p.revisionCount ?? 0,
+		children: 0,
+		comments: 0,
+		// %%content%% / %%content{N}%% （==== 区切り）テンプレ変数用。
+		content: p.source ?? "",
+	}));
+	if (requirement.needsReadableText || requirement.neededVariables.includes("size")) {
+		for (let start = 0; start < pageData.length; start += 4) {
+			const resolved = await Promise.all(
+				pageData.slice(start, start + 4).map(async (page) => ({
+					...page,
+					...(await readPageText(db, page)),
+				})),
+			);
+			pageData.splice(start, resolved.length, ...resolved);
+		}
+	}
 	return {
-		pages: visibleRows.map(({ page: p, creator, updater }) => ({
-			name: p.unixName,
-			category: p.category,
-			fullname: formatPagePath(p.category, p.unixName),
-			title: p.title,
-			createdAt: new Date(p.createdAt ?? ""),
-			createdBy: creator ?? undefined,
-			updatedAt: new Date(p.updatedAt ?? ""),
-			updatedBy: updater ?? undefined,
-			tags: tagsByPageId.get(p.id) ?? [],
-			hiddenTags: [] as string[],
-			rating: 0,
-			ratingVotes: 0,
-			revisions: p.revisionCount ?? 0,
-			children: 0,
-			comments: 0,
-			size: (p.source ?? "").length,
-			// %%content%% / %%content{N}%% （==== 区切り）テンプレ変数用。
-			content: p.source ?? "",
-		})),
+		pages: pageData,
 		// totalCount は WHERE のみ。 canViewPage で落ちた件数は反映していない
 		// （wdmock-cf 互換、 ListPages の %%total%% も本質的に WHERE ベース）。
 		totalCount: totalCountRaw,
@@ -565,26 +648,45 @@ export async function renderWikitext(
 		page,
 		settings: { ...createSettings("page"), allowStyleElements: true },
 		dataProvider: {
-			fetchInclude: async (pageRef) => {
-				const target = resolveLocalIncludeTarget(pageRef);
-				if (target === null) return null;
-				const selector = target.category
-					? and(
-							eq(pages.category, target.category),
-							eq(pages.unixName, target.unixName),
-							isNull(pages.deletedAt),
-						)
-					: and(eq(pages.unixName, target.unixName), isNull(pages.deletedAt));
-				const result = await db
-					.select({ source: pages.source, category: pages.category })
+			fetchInclude: (pageRef) => fetchIncludeSource(db, pageRef),
+			fetchRatings: async (refs): Promise<RatingState[]> => {
+				if (!refs.some((ref) => ref.kind === "main")) return [];
+				const [currentPage] = await db
+					.select()
 					.from(pages)
-					.where(selector)
-					.limit(target.category ? 1 : 2);
-				if (result.length !== 1 || !visibilityPolicy(result[0].category).canInclude) return null;
-				return result[0].source;
+					.where(
+						and(
+							eq(pages.category, page.category),
+							eq(pages.unixName, page.unixName),
+							isNull(pages.deletedAt),
+						),
+					)
+					.limit(1);
+				if (currentPage && !canViewPage(currentPage, viewerId)) return [];
+				const [aggregate] = currentPage
+					? await db
+							.select({
+								points: sql<number>`coalesce(sum(${votes.value}), 0)`,
+								votes: sql<number>`count(*)`,
+								percent: sql<number>`coalesce(round(100.0 * sum(${votes.value} = 1) / count(*)), 0)`,
+							})
+							.from(votes)
+							.where(eq(votes.pageId, currentPage.id))
+					: [{ points: 0, votes: 0, percent: 0 }];
+				return [
+					{
+						ref: { kind: "main" },
+						label: "rating",
+						allowedVotes: [],
+						canVote: false,
+						canCancel: false,
+						currentVote: null,
+						aggregate,
+					},
+				];
 			},
-			fetchListPages: (query) =>
-				fetchListPagesData(db, query, {
+			fetchListPages: (query, requirement) =>
+				fetchListPagesData(db, query, requirement, {
 					currentCategory: page.category,
 					currentPageName: page.unixName,
 					currentTags: page.tags,

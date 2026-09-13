@@ -76,6 +76,14 @@ function createDatabase(): Database {
 			page_id INTEGER NOT NULL,
 			tag TEXT NOT NULL
 		);
+		CREATE TABLE votes (
+			id INTEGER PRIMARY KEY,
+			page_id INTEGER NOT NULL,
+			user_id INTEGER NOT NULL,
+			value INTEGER NOT NULL CHECK(value IN (-1, 1)),
+			created_at TEXT,
+			UNIQUE(page_id, user_id)
+		);
 	`);
 	return sqlite;
 }
@@ -752,6 +760,143 @@ describe("renderWikitext pipeline adapter", () => {
 		expect(result.html).toContain("ACTIVE_PAGE");
 		expect(result.html).not.toContain("REMOVED_PAGE");
 		expect(result.html).not.toContain("REMOVED_SOURCE");
+	});
+
+	test("preserves Rate as a read-only aggregate of the displayed page", async () => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+		sqlite.run(`
+			INSERT INTO pages (id, category, unix_name, source) VALUES
+				(1, 'docs', 'article', '[[module Rate]]'),
+				(2, 'parts', 'rate', '[[module Rate]]');
+			INSERT INTO votes (page_id, user_id, value) VALUES
+				(1, 1, 1), (1, 2, 1), (1, 3, -1), (2, 1, -1);
+		`);
+		const result = await renderWikitext(
+			"[[module Rate]]\n[[include parts:rate]]",
+			createEnv(sqlite),
+			{ pageName: "article", category: "docs", viewerId: 1 },
+		);
+		expect(result.html.match(/data-rating-kind="main"/g)).toHaveLength(2);
+		expect(result.html.match(/class="number prw54353">\+1<\/span>/g)).toHaveLength(2);
+		expect(result.html).not.toContain("data-rating-action=");
+		expect(sqlite.query("SELECT COUNT(*) AS count FROM votes").get()).toEqual({ count: 4 });
+	});
+
+	test.each([null, 1, 2])(
+		"uses the viewer's page access when reading ratings: %s",
+		async (viewerId) => {
+			const sqlite = createDatabase();
+			databases.push(sqlite);
+			sqlite.run(`
+			INSERT INTO pages (id, category, unix_name, created_by, deleted_at) VALUES
+				(1, 'private', 'article', 1, NULL),
+				(2, 'docs', 'deleted', 1, '2026-09-13');
+			INSERT INTO votes (page_id, user_id, value) VALUES (1, 1, 1), (2, 1, -1);
+		`);
+			const result = await renderWikitext("[[module Rate]]", createEnv(sqlite), {
+				pageName: "article",
+				category: "private",
+				viewerId,
+			});
+			expect(result.html.includes('data-rating-kind="main"')).toBe(viewerId === 1);
+			const deleted = await renderWikitext("[[module Rate]]", createEnv(sqlite), {
+				pageName: "deleted",
+				category: "docs",
+				viewerId,
+			});
+			expect(deleted.html).toContain('class="number prw54353">0</span>');
+			expect(deleted.html).not.toContain('class="number prw54353">-1</span>');
+			const preview = await renderWikitext("[[module Rate]]", createEnv(sqlite), {
+				pageName: "unsaved",
+				category: "docs",
+				viewerId,
+			});
+			expect(preview.html).toContain('class="number prw54353">0</span>');
+			expect(preview.html).not.toContain("data-rating-action=");
+		},
+	);
+
+	test("retains social markup and omits unregistered custom ratings", async () => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+		const result = await renderWikitext(
+			'[[social]]\n[[module CustomRate key="unregistered"]]',
+			createEnv(sqlite),
+			{
+				pageName: "article",
+				category: "docs",
+			},
+		);
+		expect(result.html).toContain('class="wdpr-social"');
+		expect(result.html).not.toContain('data-rating-kind="custom"');
+	});
+
+	test("supplies resolved text and the first body paragraph to ListPages excerpts", async () => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+		sqlite.run(
+			"INSERT INTO pages (id, category, unix_name, source) VALUES (1, 'docs', 'article', ?), (2, 'parts', 'intro', '**Hello** 日本語')",
+			["+ 見出し\n\n[[include parts:intro]]\n\nSecond paragraph."],
+		);
+		const result = await renderWikitext(
+			[
+				'[[module ListPages category="docs"]]',
+				"summary=%%summary%%",
+				"first=%%first_paragraph%%",
+				'pick=%%excerpt{pattern="Hello (日本語)" group="1"}%%',
+				"preview=%%preview%%",
+				"[[/module]]",
+			].join("\n"),
+			createEnv(sqlite),
+			{ pageName: "list", category: "_default" },
+		);
+		expect(result.html).toMatch(/summary=<span[^>]*>Hello&#32;日本語<\/span>/);
+		expect(result.html).toMatch(/first=<span[^>]*>Hello&#32;日本語<\/span>/);
+		expect(result.html).toMatch(/pick=<span[^>]*>日本語<\/span>/);
+		expect(result.html).toContain("Second&#32;paragraph.");
+		expect(result.html).not.toContain("**Hello**");
+	});
+
+	test.each([
+		["**A**日e\u0301", "3"],
+		["", "0"],
+		["[[code]]\nhello", "5"],
+		["text\n[[include missing]]", ""],
+		["[[module ListPages]]\n%%title%%\n[[/module]]", ""],
+	])(
+		"uses readable character counts without treating incomplete text as zero: %s",
+		async (source, count) => {
+			const sqlite = createDatabase();
+			databases.push(sqlite);
+			sqlite.run(
+				"INSERT INTO pages (id, category, unix_name, source) VALUES (1, 'docs', 'article', ?)",
+				[source],
+			);
+			const result = await renderWikitext(
+				'[[module ListPages category="docs"]]\nsize=%%size%%;\n[[/module]]',
+				createEnv(sqlite),
+				{ pageName: "list", category: "_default" },
+			);
+			expect(result.html).toContain(`size=${count};`);
+		},
+	);
+
+	test("uses the normal include policy when extracting ListPages text", async () => {
+		const sqlite = createDatabase();
+		databases.push(sqlite);
+		sqlite.run(`
+			INSERT INTO pages (id, category, unix_name, source, created_by) VALUES
+				(1, 'docs', 'article', '[[include private:part]]', 1),
+				(2, 'private', 'part', 'PRIVATE_BODY', 1);
+		`);
+		const result = await renderWikitext(
+			'[[module ListPages category="docs"]]\ntext=%%preview%%;size=%%size%%;\n[[/module]]',
+			createEnv(sqlite),
+			{ pageName: "list", category: "_default", viewerId: 1 },
+		);
+		expect(result.html).toContain("text=;size=;");
+		expect(result.html).not.toContain("PRIVATE_BODY");
 	});
 
 	test("passes urlPath to ListPages @URL query resolution", async () => {
