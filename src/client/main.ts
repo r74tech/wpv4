@@ -43,6 +43,8 @@ type ReferencedBy = {
 let runtime: WdprRuntime | null = null;
 let authenticated = false;
 let renderedPagePath: string | null = null;
+// ページ遷移とinclude先解決のたびに進める。応答待ちの間に後続の操作があれば古い解決を捨てる。
+let navigationSeq = 0;
 
 // --- ページ読み込み ---
 
@@ -72,6 +74,7 @@ function cleanPagePath(path: string): string {
 
 async function loadPage(path: string) {
 	renderedPagePath = normalizePagePath(path);
+	navigationSeq++;
 	clearActionArea();
 	const pageContent = $("#page-content");
 	const pageTitle = $("#page-title");
@@ -364,12 +367,11 @@ async function showEditor(path: string) {
 
 // --- ソース表示 ---
 
-async function showSource(path: string, includeReference = false) {
+async function showSource(path: string) {
 	const actionArea = $("#action-area");
 	if (!actionArea) return;
 
-	const suffix = includeReference ? "?include=1" : "";
-	const res = await fetch(`/api/web/page-source/${path}${suffix}`);
+	const res = await fetch(`/api/web/page-source/${path}`);
 	if (!res.ok) {
 		setHtml(actionArea, "<p>Failed to load source.</p>");
 		return;
@@ -383,6 +385,25 @@ async function showSource(path: string, includeReference = false) {
 			`<div class="page-source"><pre>${renderSourceWithIncludeLinks(data.source)}</pre></div>`,
 	);
 	$("#btn-close-action")?.addEventListener("click", () => setHtml(actionArea, ""));
+}
+
+// include先の表記（site付き・ULIDのみ等）はそのままURLにできないため、
+// APIでinclude解決したページの実パスへ遷移する。
+async function openIncludeTarget(path: string) {
+	const actionArea = $("#action-area");
+	if (!actionArea) return;
+
+	const seq = ++navigationSeq;
+	const res = await fetch(`/api/web/page-source/${path}?include=1`);
+	if (seq !== navigationSeq) return;
+	if (!res.ok) {
+		setHtml(actionArea, "<p>Failed to open include target.</p>");
+		return;
+	}
+
+	const data = (await res.json()) as { category: string; unix_name: string };
+	if (seq !== navigationSeq) return;
+	navigateTo(data.category === "_default" ? data.unix_name : `${data.category}:${data.unix_name}`);
 }
 
 // --- イベントハンドラ ---
@@ -420,6 +441,8 @@ function setupEventHandlers() {
 
 	// ブラウザの戻る/進む
 	window.addEventListener("popstate", () => {
+		// 同一ページ内の履歴移動でも応答待ちのinclude先解決を捨てる
+		navigationSeq++;
 		const path = getPagePathFromUrl();
 		if (path && shouldReloadPage(renderedPagePath, path)) loadPage(path);
 	});
@@ -473,7 +496,11 @@ function setupEventHandlers() {
 			} else if (action === "compare-revisions") {
 				showRevisionCompare(path);
 			} else if (action === "source") {
-				showSource(path, actionAnchor.hasAttribute("data-include-source"));
+				if (actionAnchor.hasAttribute("data-include-source")) {
+					openIncludeTarget(path);
+				} else {
+					showSource(path);
+				}
 			} else if (action === "view-revision") {
 				const rev = Number(actionAnchor.dataset.rev);
 				if (!Number.isNaN(rev)) showRevisionView(path, rev);

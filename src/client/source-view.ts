@@ -16,7 +16,7 @@ function isIncludeScanBounded(source: string): boolean {
 	return true;
 }
 
-/** Render escaped source with recognized include targets linked to their source views. */
+/** Render escaped source with recognized include targets linked to their pages. */
 export function renderSourceWithIncludeLinks(source: string): string {
 	const references = isIncludeScanBounded(source) ? extractIncludeReferences(source) : [];
 	let cursor = 0;

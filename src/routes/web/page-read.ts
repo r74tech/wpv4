@@ -87,6 +87,8 @@ export const pageReadRoutes = new Hono<AppEnv>()
 			.from(pageTags)
 			.where(eq(pageTags.pageId, page.id));
 		return c.json({
+			category: page.category,
+			unix_name: page.unixName,
 			title: page.title,
 			source: page.source,
 			tags: tags.map(({ tag }) => tag),
