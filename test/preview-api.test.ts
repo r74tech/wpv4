@@ -62,6 +62,7 @@ function createDatabase(): Database {
 			revision_number INTEGER NOT NULL,
 			title TEXT NOT NULL DEFAULT '',
 			source TEXT NOT NULL DEFAULT '',
+			tags TEXT,
 			comment TEXT,
 			visibility TEXT NOT NULL DEFAULT 'share',
 			created_by INTEGER,
@@ -148,21 +149,29 @@ describe("preview API page context", () => {
 		expect(result.html).not.toContain("legacy-name");
 	});
 
-	test("returns current page tags with a revision", async () => {
+	test("returns tags recorded on the revision instead of current page tags", async () => {
 		const sqlite = createDatabase();
 		databases.push(sqlite);
 		sqlite.run(`
 			INSERT INTO users (id, wikidot_id, name, unix_name) VALUES (7, 70, 'Owner', 'owner');
-			INSERT INTO pages (id, category, unix_name, title, source, created_by) VALUES
-				(1, '_default', 'guide', 'Guide', 'current', 7);
+			INSERT INTO pages (id, category, unix_name, title, source, revision_count, created_by) VALUES
+				(1, '_default', 'guide', 'Guide', 'current', 2, 7);
 			INSERT INTO revisions
-				(id, page_id, revision_number, title, source, comment, visibility, created_by)
-			VALUES (1, 1, 0, 'Old guide', 'old', 'initial', 'share', 7);
-			INSERT INTO page_tags (id, page_id, tag) VALUES (1, 1, 'alpha'), (2, 1, 'beta');
+				(id, page_id, revision_number, title, source, tags, comment, visibility, created_by)
+			VALUES
+				(1, 1, 0, 'Old guide', 'old', NULL, 'initial', 'share', 7),
+				(2, 1, 1, 'Guide', 'mid', '["alpha","beta"]', '', 'share', 7);
+			INSERT INTO page_tags (id, page_id, tag) VALUES (1, 1, 'gamma');
 		`);
 		const app = createTestApi({ id: 7, wikidotId: 70, name: "Owner", unixName: "owner" });
-		const response = await app.request(
+		const unrecorded = await app.request(
 			"http://localhost/api/web/page-revision/guide/r/0",
+			undefined,
+			createEnv(sqlite),
+		);
+		expect(((await unrecorded.json()) as { tags: string[] | null }).tags).toBeNull();
+		const response = await app.request(
+			"http://localhost/api/web/page-revision/guide/r/1",
 			undefined,
 			createEnv(sqlite),
 		);

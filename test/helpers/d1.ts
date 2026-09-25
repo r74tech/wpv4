@@ -55,7 +55,7 @@ export function applyMigrationSql(sqlite: Database, migration: string): void {
 	}
 }
 
-export async function applyMigrations(sqlite: Database, through = 8): Promise<void> {
+export async function applyMigrations(sqlite: Database, through = 9): Promise<void> {
 	for (let number = 1; number <= through; number += 1) {
 		const names = [
 			"0001_initial.sql",
@@ -66,6 +66,7 @@ export async function applyMigrations(sqlite: Database, through = 8): Promise<vo
 			"0006_soft_delete_api_keys.sql",
 			"0007_scope_page_unix_name_by_category.sql",
 			"0008_custom_ratings.sql",
+			"0009_revision_tags.sql",
 		];
 		const file = Bun.file(new URL(`../../db/migrations/${names[number - 1]}`, import.meta.url));
 		applyMigrationSql(sqlite, await file.text());

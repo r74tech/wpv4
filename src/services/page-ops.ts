@@ -30,6 +30,10 @@ export type PageOperationError =
 	  }
 	| { ok: false; reason: "internal" };
 
+/** pages 行を参照する SELECT 内で、そのページの現在のタグを JSON 配列にする */
+export const CURRENT_TAGS_JSON_SQL =
+	"(SELECT json_group_array(tag) FROM (SELECT tag FROM page_tags WHERE page_id = pages.id ORDER BY id))";
+
 export function normalizePageTags(tags: string[]): string[] {
 	return [
 		...new Set(
@@ -89,12 +93,13 @@ export async function createPage(
 		db.$client
 			.prepare(
 				`INSERT INTO revisions
-					(page_id, revision_number, title, source, comment, visibility, created_by, created_at)
-				 SELECT id, 0, ?, ?, ?, ?, ?, ? FROM pages WHERE category = ? AND unix_name = ?`,
+					(page_id, revision_number, title, source, tags, comment, visibility, created_by, created_at)
+				 SELECT id, 0, ?, ?, ?, ?, ?, ?, ? FROM pages WHERE category = ? AND unix_name = ?`,
 			)
 			.bind(
 				input.title,
 				input.source,
+				JSON.stringify(tags),
 				input.comment,
 				toRevisionVisibility(input.type),
 				input.userId,
@@ -149,13 +154,14 @@ export async function updatePage(
 		db.$client
 			.prepare(
 				`INSERT INTO revisions
-					(page_id, revision_number, title, source, comment, visibility, created_by, created_at)
-				 SELECT id, ?, ?, ?, ?, ?, ?, ? FROM pages WHERE ${guard}`,
+					(page_id, revision_number, title, source, tags, comment, visibility, created_by, created_at)
+				 SELECT id, ?, ?, ?, ?, ?, ?, ?, ? FROM pages WHERE ${guard}`,
 			)
 			.bind(
 				revisionNumber,
 				input.title,
 				input.source,
+				JSON.stringify(tags),
 				input.comment,
 				toRevisionVisibility(page.category),
 				input.userId,
@@ -238,8 +244,8 @@ async function writeVisibilityChange(
 		db.$client
 			.prepare(
 				`INSERT INTO revisions
-					(page_id, revision_number, title, source, comment, visibility, created_by, created_at)
-				 SELECT id, ?, title, source, ?, ?, ?, ? FROM pages WHERE ${guard}`,
+					(page_id, revision_number, title, source, tags, comment, visibility, created_by, created_at)
+				 SELECT id, ?, title, source, ${CURRENT_TAGS_JSON_SQL}, ?, ?, ?, ? FROM pages WHERE ${guard}`,
 			)
 			.bind(
 				revisionNumber,
@@ -274,8 +280,8 @@ async function rollbackVisibilityChange(
 		db.$client
 			.prepare(
 				`INSERT INTO revisions
-					(page_id, revision_number, title, source, comment, visibility, created_by, created_at)
-				 SELECT id, revision_count + 1, title, source, ?, ?, ?, ?
+					(page_id, revision_number, title, source, tags, comment, visibility, created_by, created_at)
+				 SELECT id, revision_count + 1, title, source, ${CURRENT_TAGS_JSON_SQL}, ?, ?, ?, ?
 					 FROM pages WHERE id = ? AND category = ? AND deleted_at IS NULL`,
 			)
 			.bind(

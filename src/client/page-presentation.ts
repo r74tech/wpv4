@@ -1,6 +1,6 @@
 import { formatDocumentTitle } from "../lib/document-title";
 
-type PagePresentation = {
+export type PagePresentation = {
 	title: string;
 	html: string;
 	styles: string[];

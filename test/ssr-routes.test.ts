@@ -74,6 +74,7 @@ function createDatabase(): Database {
 			revision_number INTEGER NOT NULL,
 			title TEXT NOT NULL DEFAULT '',
 			source TEXT NOT NULL DEFAULT '',
+			tags TEXT,
 			comment TEXT,
 			visibility TEXT NOT NULL DEFAULT 'share',
 			created_by INTEGER,

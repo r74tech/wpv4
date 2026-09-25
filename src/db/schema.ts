@@ -71,6 +71,8 @@ export const revisions = sqliteTable(
 		revisionNumber: integer("revision_number").notNull(),
 		title: text("title").notNull().default(""),
 		source: text("source").notNull().default(""),
+		// このリビジョン時点のタグ（JSON 配列）。NULL は未記録
+		tags: text("tags"),
 		comment: text("comment").default(""),
 		// このリビジョン作成時点のページ公開状態（'share' | 'private'）
 		// systemページ由来は 'share' 相当

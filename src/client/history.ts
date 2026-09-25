@@ -1,5 +1,6 @@
 import { diffArrays, diffLines } from "diff";
 import { $, escapeAttr, escapeHtml, setHtml } from "./dom";
+import type { PagePresentation } from "./page-presentation";
 import { buildPreviewRequest } from "./preview";
 import { renderSourceWithIncludeLinks } from "./source-view";
 import { renderAvatarUser } from "../lib/user-markup";
@@ -7,8 +8,7 @@ import { renderAvatarUser } from "../lib/user-markup";
 const HISTORY_PAGE_SIZE = 20;
 
 type HistoryDependencies = {
-	injectStyles: (styles: string[]) => void;
-	initRuntime: () => void;
+	presentPage: (presentation: PagePresentation) => void;
 	loadPage: (path: string) => void | Promise<void>;
 	getRenderedPagePath: () => string | null;
 	filesDomain: string;
@@ -25,7 +25,8 @@ type RevisionResponse = {
 	created_by_wikidot_id: number | null;
 	created_at: string | null;
 	page_path: string;
-	tags: string[];
+	/** リビジョン時点のタグ。null は未記録 */
+	tags: string[] | null;
 };
 
 type HistoryRevision = {
@@ -110,7 +111,7 @@ export async function showRevisionView(path: string, num: number) {
 		method: "POST",
 		headers: { "Content-Type": "application/json", Origin: window.location.origin },
 		body: JSON.stringify(
-			buildPreviewRequest(data.source, data.tags, {
+			buildPreviewRequest(data.source, data.tags ?? [], {
 				mode: "revision",
 				pagePath: data.page_path,
 				getRenderedPagePath: () => deps?.getRenderedPagePath() ?? null,
@@ -136,17 +137,18 @@ export async function showRevisionView(path: string, num: number) {
 		`<tr><td>Date created:</td><td>${escapeHtml(dateStr)}</td></tr>` +
 		`<tr><td>By:</td><td>${userDisplay}</td></tr>` +
 		`<tr><td>Page name:</td><td>${escapeHtml(data.page_path)}</td></tr>` +
+		(data.tags === null ? `<tr><td>Tags:</td><td>(not recorded)</td></tr>` : "") +
 		(data.comment ? `<tr><td>Comment:</td><td>${escapeHtml(data.comment)}</td></tr>` : "") +
 		`</tbody></table>` +
 		`<a href="javascript:;" id="btn-close-version-info">Close this box</a>` +
 		`</div>`;
 
-	deps?.injectStyles(rendered.styles);
-	const pageTitle = $("#page-title");
-	setHtml(pageTitle, data.title ? `<span>${escapeHtml(data.title)}</span>` : "");
-	pageTitle?.toggleAttribute("hidden", !data.title);
-	setHtml($("#page-content"), versionInfo + rendered.html);
-	deps?.initRuntime();
+	deps?.presentPage({
+		title: data.title,
+		html: versionInfo + rendered.html,
+		styles: rendered.styles,
+		tags: data.tags ?? [],
+	});
 	$("#btn-close-version-info")?.addEventListener("click", () => {
 		const info = document.getElementById("page-version-info");
 		if (info) info.style.display = "none";
@@ -565,6 +567,31 @@ function renderCompareDate(value: string | null): string {
 	);
 }
 
+function renderComparedTags(tags: string[] | null, other: string[] | null, side: "old" | "new") {
+	if (tags === null) return "(not recorded)";
+	const changedClass = side === "old" ? "diff-inline-removed" : "diff-inline-added";
+	return tags
+		.map((tag) =>
+			other !== null && !other.includes(tag)
+				? `<span class="${changedClass}">${escapeHtml(tag)}</span>`
+				: escapeHtml(tag),
+		)
+		.join(" ");
+}
+
+function renderTagsComparison(from: string[] | null, to: string[] | null): string {
+	const same =
+		from !== null &&
+		to !== null &&
+		from.length === to.length &&
+		from.every((tag) => to.includes(tag));
+	if (same || (from === null && to === null)) return "";
+	return (
+		`<tr><td>Tags:</td><td>${renderComparedTags(from, to, "old")}</td>` +
+		`<td>${renderComparedTags(to, from, "new")}</td></tr>`
+	);
+}
+
 function renderRevisionComparison(from: RevisionResponse, to: RevisionResponse): string {
 	const compareTable =
 		`<table class="page-compare"><tbody>` +
@@ -576,6 +603,7 @@ function renderRevisionComparison(from: RevisionResponse, to: RevisionResponse):
 		(from.title !== to.title
 			? `<tr><td>Title:</td><td>${escapeHtml(from.title)}</td><td>${escapeHtml(to.title)}</td></tr>`
 			: "") +
+		renderTagsComparison(from.tags, to.tags) +
 		`</tbody></table>`;
 
 	return (

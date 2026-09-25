@@ -28,6 +28,32 @@ describe("database migrations", () => {
 		}
 	});
 
+	test("records current tags only on the latest revision when adding revision tags", async () => {
+		const sqlite = new Database(":memory:");
+		try {
+			await applyMigrations(sqlite, 8);
+			sqlite.run(
+				"INSERT INTO pages (id, category, unix_name, revision_count) VALUES (1, 'docs', 'article', 1), (2, 'docs', 'empty', 0)",
+			);
+			sqlite.run("INSERT INTO revisions (page_id, revision_number) VALUES (1, 0), (1, 1), (2, 0)");
+			sqlite.run("INSERT INTO page_tags (page_id, tag) VALUES (1, 'beta'), (1, 'alpha')");
+			applyMigrationSql(
+				sqlite,
+				await Bun.file(new URL("../db/migrations/0009_revision_tags.sql", import.meta.url)).text(),
+			);
+			expect(
+				sqlite.query("SELECT page_id, revision_number, tags FROM revisions ORDER BY id").all(),
+			).toEqual([
+				{ page_id: 1, revision_number: 0, tags: null },
+				{ page_id: 1, revision_number: 1, tags: '["beta","alpha"]' },
+				{ page_id: 2, revision_number: 0, tags: "[]" },
+			]);
+			expect(() => sqlite.run("UPDATE revisions SET tags = 'invalid' WHERE page_id = 2")).toThrow();
+		} finally {
+			sqlite.close();
+		}
+	});
+
 	test("adds custom rating storage while preserving existing votes", async () => {
 		const sqlite = new Database(":memory:");
 		try {

@@ -239,6 +239,49 @@ describe("existing page API contract", () => {
 		expect(
 			sqlite.query("SELECT title, source, revision_count FROM pages WHERE id = 1").get(),
 		).toEqual({ title: "New", source: "new", revision_count: 1 });
+		expect(sqlite.query("SELECT tags FROM revisions WHERE revision_number = 1").get()).toEqual({
+			tags: '["x"]',
+		});
+	});
+
+	test("restores recorded tags on revert and keeps current tags for unrecorded revisions", async () => {
+		const sqlite = await createDatabase();
+		databases.push(sqlite);
+		sqlite.run(
+			"INSERT INTO pages (id, category, unix_name, title, source, revision_count, created_by) VALUES (1, '_default', 'guide', 'Current', 'current', 2, 1)",
+		);
+		sqlite.run(
+			`INSERT INTO revisions (page_id, revision_number, title, source, tags, created_by) VALUES
+				(1, 0, 'Legacy', 'legacy', NULL, 1),
+				(1, 1, 'Old', 'old', '["old","shared"]', 1),
+				(1, 2, 'Current', 'current', '["shared","now"]', 1)`,
+		);
+		sqlite.run("INSERT INTO page_tags (page_id, tag) VALUES (1, 'shared'), (1, 'now')");
+		const owner = createApp({ id: 1, wikidotId: 10, name: "Owner", unixName: "owner" });
+		const currentTags = () =>
+			sqlite.query("SELECT tag FROM page_tags WHERE page_id = 1 ORDER BY id").all();
+
+		const restored = await owner.request(
+			"http://localhost/api/web/page-revert/guide/r/1",
+			jsonRequest("POST", {}),
+			createEnv(sqlite),
+		);
+		expect(restored.status).toBe(200);
+		expect(currentTags()).toEqual([{ tag: "old" }, { tag: "shared" }]);
+		expect(sqlite.query("SELECT tags FROM revisions WHERE revision_number = 3").get()).toEqual({
+			tags: '["old","shared"]',
+		});
+
+		const legacy = await owner.request(
+			"http://localhost/api/web/page-revert/guide/r/0",
+			jsonRequest("POST", {}),
+			createEnv(sqlite),
+		);
+		expect(legacy.status).toBe(200);
+		expect(currentTags()).toEqual([{ tag: "old" }, { tag: "shared" }]);
+		expect(
+			sqlite.query("SELECT title, tags FROM revisions WHERE revision_number = 4").get(),
+		).toEqual({ title: "Legacy", tags: '["old","shared"]' });
 	});
 
 	test("preserves visibility conflict, success, and delete ownership", async () => {

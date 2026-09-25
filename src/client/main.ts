@@ -3,7 +3,7 @@ import type { WdprRuntime } from "@wdprlib/runtime";
 import { $, escapeAttr, escapeHtml, setHtml } from "./dom";
 import { normalizePagePath, shouldReloadPage } from "./navigation";
 import { buildPreviewRequest, isPreviewCategory } from "./preview";
-import { commitPagePresentation } from "./page-presentation";
+import { commitPagePresentation, type PagePresentation } from "./page-presentation";
 import { renderSourceWithIncludeLinks } from "./source-view";
 import { formatDocumentTitle } from "../lib/document-title";
 import {
@@ -109,16 +109,7 @@ async function loadPage(path: string) {
 		}
 
 		const data: PageResponse = await res.json();
-		commitPagePresentation(data, {
-			replaceStyles: injectStyles,
-			replaceDocumentTitle: (title) => {
-				document.title = title;
-			},
-			replaceTitle,
-			replaceContent: (html) => setHtml(pageContent, html),
-			replaceTags: updatePageTags,
-		});
-		initRuntime();
+		presentPage(data);
 		updatePageOptions(cleanPath, data);
 	} catch (err) {
 		console.error("Failed to load page:", err);
@@ -129,6 +120,23 @@ async function loadPage(path: string) {
 		updatePageTags([]);
 		clearPageOptions();
 	}
+}
+
+function presentPage(presentation: PagePresentation) {
+	const pageTitle = $("#page-title");
+	commitPagePresentation(presentation, {
+		replaceStyles: injectStyles,
+		replaceDocumentTitle: (title) => {
+			document.title = title;
+		},
+		replaceTitle: (html, hidden) => {
+			setHtml(pageTitle, html);
+			pageTitle?.toggleAttribute("hidden", hidden);
+		},
+		replaceContent: (html) => setHtml($("#page-content"), html),
+		replaceTags: updatePageTags,
+	});
+	initRuntime();
 }
 
 function injectStyles(styles: string[]) {
@@ -844,8 +852,7 @@ function setupPageForm() {
 
 async function init() {
 	initHistory({
-		injectStyles,
-		initRuntime,
+		presentPage,
 		loadPage,
 		getRenderedPagePath: () => renderedPagePath,
 		filesDomain: document.body.dataset.filesDomain ?? "",

@@ -1,11 +1,12 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
-import { pageTags, pages, revisions, users } from "@/db/schema";
+import { pages, revisions, users } from "@/db/schema";
 import { canEditPage, canViewPage, toRevisionVisibility } from "@/lib/visibility";
 import { requireAuth } from "@/middleware/session";
 import type { AppEnv } from "@/types/env";
 import { parseAndNormalize, routeSuffix } from "@/routes/page-path";
+import { CURRENT_TAGS_JSON_SQL } from "@/services/page-ops";
 
 async function findPage(db: ReturnType<typeof drizzle>, pagePath: string) {
 	const [category, unixName] = parseAndNormalize(pagePath);
@@ -15,6 +16,15 @@ async function findPage(db: ReturnType<typeof drizzle>, pagePath: string) {
 		.where(and(eq(pages.category, category), eq(pages.unixName, unixName), isNull(pages.deletedAt)))
 		.limit(1);
 	return rows[0] ?? null;
+}
+
+/** revisions.tags（JSON 配列）を読む。NULL（未記録）は null のまま返す */
+function parseRevisionTags(value: string | null): string[] | null {
+	if (value === null) return null;
+	const parsed: unknown = JSON.parse(value);
+	return Array.isArray(parsed)
+		? parsed.filter((tag): tag is string => typeof tag === "string")
+		: null;
 }
 
 function parseRevisionPath(
@@ -85,6 +95,7 @@ export const historyRoutes = new Hono<AppEnv>()
 				revisionNumber: revisions.revisionNumber,
 				title: revisions.title,
 				source: revisions.source,
+				tags: revisions.tags,
 				comment: revisions.comment,
 				visibility: revisions.visibility,
 				createdBy: revisions.createdBy,
@@ -104,10 +115,6 @@ export const historyRoutes = new Hono<AppEnv>()
 		if (revision.visibility === "private" && (viewerId === null || page.createdBy !== viewerId)) {
 			return c.json({ error: "Forbidden" }, 403);
 		}
-		const tags = await db
-			.select({ tag: pageTags.tag })
-			.from(pageTags)
-			.where(eq(pageTags.pageId, page.id));
 		return c.json({
 			revision_number: revision.revisionNumber,
 			title: revision.title,
@@ -119,7 +126,7 @@ export const historyRoutes = new Hono<AppEnv>()
 			created_by_wikidot_id: revision.createdByWikidotId,
 			created_at: revision.createdAt,
 			page_path: `${page.category}:${page.unixName}`,
-			tags: tags.map(({ tag }) => tag),
+			tags: parseRevisionTags(revision.tags),
 		});
 	})
 	.post("/page-revert/*", requireAuth, async (c) => {
@@ -139,6 +146,7 @@ export const historyRoutes = new Hono<AppEnv>()
 			.select({
 				title: revisions.title,
 				source: revisions.source,
+				tags: revisions.tags,
 				visibility: revisions.visibility,
 			})
 			.from(revisions)
@@ -157,23 +165,39 @@ export const historyRoutes = new Hono<AppEnv>()
 		const guard =
 			"id = ? AND revision_count = ? AND category = ? AND is_locked = 0 AND deleted_at IS NULL";
 		const guardParams = [page.id, page.revisionCount ?? 0, page.category];
+		// タグ未記録のリビジョンへ戻すときは現在のタグを維持する
+		const restoreTags = parseRevisionTags(target.tags);
+		const existsGuard = `EXISTS (SELECT 1 FROM pages WHERE ${guard})`;
 		const results = await db.$client.batch([
 			db.$client
 				.prepare(
 					`INSERT INTO revisions
-						(page_id, revision_number, title, source, comment, visibility, created_by, created_at)
-					 SELECT id, ?, ?, ?, ?, ?, ?, ? FROM pages WHERE ${guard}`,
+						(page_id, revision_number, title, source, tags, comment, visibility, created_by, created_at)
+					 SELECT id, ?, ?, ?, ${restoreTags ? "?" : CURRENT_TAGS_JSON_SQL}, ?, ?, ?, ? FROM pages WHERE ${guard}`,
 				)
 				.bind(
 					revisionNumber,
 					target.title,
 					target.source,
+					...(restoreTags ? [JSON.stringify(restoreTags)] : []),
 					`You successfully reverted the page to revision number ${parsed.revisionNumber}`,
 					toRevisionVisibility(page.category),
 					user.id,
 					now,
 					...guardParams,
 				),
+			...(restoreTags
+				? [
+						db.$client
+							.prepare(`DELETE FROM page_tags WHERE page_id = ? AND ${existsGuard}`)
+							.bind(page.id, ...guardParams),
+						db.$client
+							.prepare(
+								`INSERT INTO page_tags (page_id, tag) SELECT ?, value FROM json_each(?) WHERE ${existsGuard}`,
+							)
+							.bind(page.id, JSON.stringify(restoreTags), ...guardParams),
+					]
+				: []),
 			db.$client
 				.prepare(
 					`UPDATE pages SET title = ?, source = ?, revision_count = ?, updated_by = ?, updated_at = ?
@@ -181,7 +205,8 @@ export const historyRoutes = new Hono<AppEnv>()
 				)
 				.bind(target.title, target.source, revisionNumber, user.id, now, ...guardParams),
 		]);
-		if (!Array.isArray(results[1].results) || results[1].results.length === 0) {
+		const updated = results.at(-1)!.results;
+		if (!Array.isArray(updated) || updated.length === 0) {
 			return c.json({ error: "Conflict: page was modified concurrently" }, 409);
 		}
 		return c.json({
