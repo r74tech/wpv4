@@ -779,7 +779,16 @@ describe("renderWikitext pipeline adapter", () => {
 		);
 		expect(result.html.match(/data-rating-kind="main"/g)).toHaveLength(2);
 		expect(result.html.match(/class="number prw54353">\+1<\/span>/g)).toHaveLength(2);
-		expect(result.html).not.toContain("data-rating-action=");
+		expect(result.html.match(/class="rate-points" aria-live="polite">評価:&nbsp;/g)).toHaveLength(
+			2,
+		);
+		for (const action of ["1", "-1", "cancel"]) {
+			expect(
+				result.html.match(
+					new RegExp(`data-rating-action="${action}"[^>]*aria-disabled="true" tabindex="-1"`, "g"),
+				),
+			).toHaveLength(2);
+		}
 		expect(sqlite.query("SELECT COUNT(*) AS count FROM votes").get()).toEqual({ count: 4 });
 	});
 
@@ -813,7 +822,8 @@ describe("renderWikitext pipeline adapter", () => {
 				viewerId,
 			});
 			expect(preview.html).toContain('class="number prw54353">0</span>');
-			expect(preview.html).not.toContain("data-rating-action=");
+			expect(preview.html).toContain('data-rating-action="1"');
+			expect(preview.html.match(/aria-disabled="true" tabindex="-1"/g)).toHaveLength(3);
 		},
 	);
 

@@ -683,10 +683,10 @@ export async function renderWikitext(
 				return [
 					{
 						ref: { kind: "main" },
-						label: "rating",
-						allowedVotes: [],
+						label: "評価",
+						allowedVotes: [1, -1],
 						canVote: false,
-						canCancel: false,
+						canCancel: true,
 						currentVote: null,
 						aggregate,
 					},
