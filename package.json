@@ -23,7 +23,7 @@
 		"@wdprlib/ast": "^5.0.0",
 		"@wdprlib/decompiler": "^1.5.0",
 		"@wdprlib/parser": "^6.0.0",
-		"@wdprlib/render": "^5.0.0",
+		"@wdprlib/render": "^5.0.1",
 		"@wdprlib/runtime": "^2.0.0",
 		"diff": "^9.0.0",
 		"drizzle-orm": "^0.45.2",

@@ -11,7 +11,7 @@
         "@wdprlib/ast": "^5.0.0",
         "@wdprlib/decompiler": "^1.5.0",
         "@wdprlib/parser": "^6.0.0",
-        "@wdprlib/render": "^5.0.0",
+        "@wdprlib/render": "^5.0.1",
         "@wdprlib/runtime": "^2.0.0",
         "diff": "^9.0.0",
         "drizzle-orm": "^0.45.2",
@@ -350,7 +350,7 @@
 
     "@wdprlib/parser": ["@wdprlib/parser@6.0.0", "", { "dependencies": { "@braintree/sanitize-url": "^7.1.1", "@wdprlib/ast": "5.0.0", "entities": "^7.0.1" } }, "sha512-19zS6KxIKi3STrgtqaljbDkjxlNrV+eC1glMlpEtV87b8pujuI3gJ75bKFDkZJ1s/O5uedS6S8FN3OuZtiSS2g=="],
 
-    "@wdprlib/render": ["@wdprlib/render@5.0.0", "", { "dependencies": { "@wdprlib/ast": "5.0.0", "domhandler": "^5.0.3", "htmlparser2": "^10.0.0", "intl-messageformat": "^10.7.18", "sanitize-html": "^2.14.0", "temml": "^0.13.1" } }, "sha512-4voS78O55oix8Yew3AZ+f8CHBO0sUrD1zuMlbY4lQdJNS0KH0Fv8Yrp0F8ivrQJXyIZBkZ5Y/t1lo8bf/NxC/w=="],
+    "@wdprlib/render": ["@wdprlib/render@5.0.1", "", { "dependencies": { "@wdprlib/ast": "5.0.0", "domhandler": "^5.0.3", "htmlparser2": "^10.0.0", "intl-messageformat": "^10.7.18", "sanitize-html": "^2.14.0", "temml": "^0.13.1" } }, "sha512-FcZyosiylNZZaS53wZv7DAd/n/cG43dbvSExqtY61F/s2bUDiKO030tV5cLhu8/PDlxmB50QAAfZHfFE96ealA=="],
 
     "@wdprlib/runtime": ["@wdprlib/runtime@2.0.0", "", { "dependencies": { "hfmath": "^0.0.2" } }, "sha512-fe7Yn7Ig+SCfjUG8a3VtIlubG1Ny7PFq+ym8xARPZHzF55jUKHsmSG5Du+/ClCiYq0R1+PynQluoawcS+LCu8Q=="],
 
